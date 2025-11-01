@@ -1,4 +1,4 @@
-import { Hono } from "npm:hono";
+
 import { createClient } from '@supabase/supabase-js';
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
@@ -71,14 +71,12 @@ app.get("/make-server-b187574e/recipes", async (c) => {
                 // Rezept und Zutaten in die Datenbank einfügen
                 const { data: recipeData, error: recipeError } = await supabase
                     .from('test_recipes')
-                    .upsert([
-                        {
-                            name: title,
-                            description: summary,
-                            instructions: instructions,
-                            text_embedding: embedding,
-                        }
-                    ]);
+                    .upsert([{
+                        name: title,
+                        description: summary,
+                        instructions: instructions,
+                        text_embedding: embedding,
+                    }]);
 
                 if (recipeError) {
                     console.log("Error inserting recipe:", recipeError.message);
@@ -99,33 +97,45 @@ app.get("/make-server-b187574e/recipes", async (c) => {
 
 // Funktion zum Generieren von Embeddings für den Rezepttext
 async function generateEmbedding(text: string): Promise<number[]> {
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
+    // Deno subprocess verwenden, um Python auszuführen und das FAISS-Skript aufzurufen
+    const result = await faissSearch(text);
+    return result.ids;  // Gib die IDs von FAISS zurück
+}
 
-    const response = await fetch('https://api.openai.com/v1/embeddings', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${openaiApiKey}`,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            model: "text-embedding-ada-002",
-            input: text,
-        }),
-    });
+// Funktion zum Aufrufen des Python-Skripts über Deno subprocess
+async function faissSearch(query: string) {
+    try {
+        // Den Python-Prozess über Deno subprocess starten
+        const process = await Deno.run({
+            cmd: ["python", "./src/supabase/functions/server/faiss_search.py", JSON.stringify(query)],
+            stdout: "piped",  // Die Ausgabe des Prozesses einfangen
+            stderr: "piped",  // Fehler des Prozesses einfangen
+        });
 
-    const data = await response.json();
-    return data.data[0].embedding;
+        // Ausgabe und Fehler des Prozesses erfassen
+        const output = await process.output();
+        const error = await process.stderrOutput();
+
+        if (error.length > 0) {
+            console.error("Fehler bei der FAISS-Suche:", new TextDecoder().decode(error));
+            return;
+        }
+
+        // Das Ergebnis der FAISS-Suche (IDs und Distanzen)
+        const result = JSON.parse(new TextDecoder().decode(output));  // Ausgabe als JSON verarbeiten
+        return result;  // Rückgabe der Ergebnisse
+    } catch (err) {
+        console.error("Fehler beim Ausführen von FAISS:", err);
+    }
 }
 
 // Funktion zum Einfügen von Zutaten in die Supabase-Datenbank
 async function insertIngredients(recipeId: string, ingredients: string[]) {
     for (const ingredient of ingredients) {
         // Zutaten in `test_ingredients`-Tabelle einfügen
-        await supabase.from('test_ingredients').upsert([
-            {
-                name: ingredient,
-            }
-        ]);
+        await supabase.from('test_ingredients').upsert([{
+            name: ingredient,
+        }]);
 
         // Verbindung zwischen Rezept und Zutaten herstellen (N:M)
         const { data: ingredientData, error: ingredientError } = await supabase
@@ -139,12 +149,10 @@ async function insertIngredients(recipeId: string, ingredients: string[]) {
         } else {
             const ingredientId = ingredientData?.ingredient_id;
 
-            await supabase.from('test_recipe_ingredients').upsert([
-                {
-                    recipe_id: recipeId,
-                    ingredient_id: ingredientId,
-                }
-            ]);
+            await supabase.from('test_recipe_ingredients').upsert([{
+                recipe_id: recipeId,
+                ingredient_id: ingredientId,
+            }]);
         }
     }
 }

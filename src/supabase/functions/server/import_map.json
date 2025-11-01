@@ -1,0 +1,9 @@
+{
+  "imports": {
+    "hono": "https://deno.land/x/hono@v2.3.1/mod.ts",
+    "hono/cors": "https://deno.land/x/hono@v2.3.1/cors.ts",
+    "hono/logger": "https://deno.land/x/hono@v2.3.1/logger.ts",
+    "node-fetch": "https://deno.land/x/fetch@2.6.1/mod.ts",
+    "dotenv": "https://deno.land/x/dotenv/mod.ts"
+  }
+}
