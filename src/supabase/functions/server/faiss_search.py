@@ -1,127 +1,162 @@
 import os
-import sys
-import json
-import faiss
-import numpy as np
+import re
+import time
+import hashlib
+from datetime import datetime, timezone
+from typing import List, Dict, Any, Optional
 import requests
 from dotenv import load_dotenv
+import psycopg2
+from sentence_transformers import SentenceTransformer
+import json
 
-load_dotenv()
+# =========================
+#   ENV laden & prüfen
+# =========================
+load_dotenv()  # .env im aktuellen Ordner
+SUPABASE_URL        = (os.environ.get("SUPABASE_URL") or "").rstrip("/")
+SUPABASE_SECRET_KEY = os.environ.get("SUPABASE_SECRET_KEY")
+SPOONACULAR_API_KEY = os.environ.get("SPOONACULAR_API_KEY")
 
-SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
-SUPABASE_SECRET_KEY = os.environ["SUPABASE_SECRET_KEY"]
+if not SUPABASE_URL:
+    raise RuntimeError("SUPABASE_URL fehlt in .env")
+if not SUPABASE_SECRET_KEY:
+    raise RuntimeError("SUPABASE_SECRET_KEY fehlt in .env (Secret/Service Role Key)")
+if not SPOONACULAR_API_KEY:
+    raise RuntimeError("SPOONACULAR_API_KEY fehlt in .env")
 
+print("Using Supabase:", SUPABASE_URL)
+
+# =========================
+#   HTTP-Clients
+# =========================
+# Supabase REST
 SB_HEADERS = {
     "apikey": SUPABASE_SECRET_KEY,
     "Authorization": f"Bearer {SUPABASE_SECRET_KEY}",
+    "Content-Type": "application/json",
 }
 
-def parse_embedding(value):
-    """
-    Supabase kann embedding als list oder als string "[...]" liefern.
-    Wir machen es hier immer zu list[float].
-    """
-    if value is None:
-        return None
-    if isinstance(value, list):
-        return value
-    if isinstance(value, str):
-        try:
-            return json.loads(value)
-        except Exception:
-            v = value.strip().lstrip("[").rstrip("]")
-            return [float(x) for x in v.split(",") if x.strip()]
-    return None
-
-def load_vectors(limit=300):
-    r = requests.get(
-        f"{SUPABASE_URL}/rest/v1/recipe_chunk",
-        headers=SB_HEADERS,
-        params={
-            "select": "id,recipe_id,content,embedding",
-            "embedding": "not.is.null",
-            "limit": limit,
-        },
-        timeout=30,
-    )
+def sb_get(table: str, params: Dict[str, Any], timeout=30):
+    r = requests.get(f"{SUPABASE_URL}/rest/v1/{table}", headers=SB_HEADERS, params=params, timeout=timeout)
     r.raise_for_status()
-    data = r.json()
+    return r.json()
 
-    vectors = []
-    meta = []
+def sb_insert(table: str, rows: List[Dict[str, Any]], timeout=30):
+    r = requests.post(f"{SUPABASE_URL}/rest/v1/{table}", headers=SB_HEADERS, json=rows, timeout=timeout)
+    r.raise_for_status()
+    return r.json() if r.text else None
 
-    for row in data:
-        emb = parse_embedding(row.get("embedding"))
-        if not emb:
-            continue
-        vectors.append(emb)
-        meta.append(
-            {
-                "chunk_id": row["id"],
-                "recipe_id": row["recipe_id"],
-                "content": row["content"],
-            }
-        )
+def sb_upsert(table: str, rows: List[Dict[str, Any]], on_conflict: Optional[str] = None, timeout=30):
+    params = {}
+    if on_conflict:
+        params["on_conflict"] = on_conflict
+    headers = {**SB_HEADERS, "Prefer": "resolution=merge-duplicates"}
+    r = requests.post(f"{SUPABASE_URL}/rest/v1/{table}", headers=headers, params=params, json=rows, timeout=timeout)
+    r.raise_for_status()
+    return r.json() if r.text else None
 
-    return vectors, meta
+# Spoonacular API
+BASE = "https://api.spoonacular.com"
 
-def build_index(vectors):
-    if not vectors:
-        raise RuntimeError("no vectors loaded from supabase")
-    dim = len(vectors[0])
-    index = faiss.IndexFlatL2(dim)
-    index.add(np.array(vectors, dtype="float32"))
-    return index, dim
+def spoonacular_get(path: str, params: Dict[str, Any], timeout=30):
+    params = dict(params or {})
+    headers = {"x-api-key": SPOONACULAR_API_KEY}  # stabiler als ?apiKey=
+    r = requests.get(f"{BASE}{path}", params=params, headers=headers, timeout=timeout)
+    # Fehlerbehandlung
+    if r.status_code == 402:
+        raise RuntimeError("Spoonacular: Payment Required / Quota exceeded.")
+    if r.status_code == 401:
+        raise RuntimeError("Spoonacular: 401 Unauthorized – API Key prüfen.")
+    if r.status_code == 429:
+        # Rate-Limit: klein pausieren und nochmal versuchen
+        time.sleep(3)
+        r = requests.get(f"{BASE}{path}", params=params, headers=headers, timeout=timeout)
+    r.raise_for_status()
+    return r.json()
 
-def adjust_query_dim(query_vec, dim):
+# =========================
+#   Helper (Text/Chunks)
+# =========================
+TAG_RE = re.compile(r"<[^>]+>")
+WS_RE = re.compile(r"\s+")
+
+def html_to_text(s: Optional[str]) -> str:
+    if not s:
+        return ""
+    s = TAG_RE.sub(" ", s)
+    s = WS_RE.sub(" ", s).strip()
+    return s
+
+def norm(s: str) -> str:
+    return " ".join((s or "").strip().lower().split())
+
+def make_embedding(text: str):
     """
-    Wenn die Query kürzer ist als der Index:
-      → mit Nullen auffüllen
-    Wenn sie länger ist:
-      → abschneiden
+    Berechnet das Embedding eines Textes
     """
-    if len(query_vec) == dim:
-        return query_vec
-    if len(query_vec) < dim:
-        # pad with zeros
-        return query_vec + [0.0] * (dim - len(query_vec))
-    # len(query_vec) > dim
-    return query_vec[:dim]
+    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+    return model.encode(text).tolist()
+
+def save_recipe_to_supabase(recipe_data):
+    """
+    Speichert ein Rezept (inkl. Embedding) in Supabase
+    """
+    # Extrahiere die vollständige Verbindungsinformation von Supabase
+    host = SUPABASE_URL.replace("https://", "").replace(".supabase.co", "")
+    database = "postgres"  # Standard-Datenbankname für Supabase
+    user = "postgres"      # Standard-Datenbankbenutzer
+    password = SUPABASE_SECRET_KEY
+    port = 5432            # Standard-Port für PostgreSQL
+
+    # Verbinde mit der Supabase-Datenbank (PostgreSQL)
+    conn = psycopg2.connect(
+        host=f"{host}.supabase.co",  # Vollständiger Hostname (mit .supabase.co)
+        database=database,
+        user=user,
+        password=password,
+        port=port  # Port hinzufügen
+    )
+
+    cursor = conn.cursor()
+
+    title = recipe_data["title"]
+    description = recipe_data["description"]
+    instructions = recipe_data["instructions"]
+    ingredients = " ".join([ingredient["name"] for ingredient in recipe_data["ingredients"]])
+
+    # Berechne Embeddings für Text (Titel + Beschreibung + Anweisungen)
+    text_embedding = make_embedding(title + " " + description + " " + instructions)
+
+    # Berechne Embedding für Zutaten (aggregiert)
+    ingredients_embedding = make_embedding(ingredients)
+
+    # Speichern der Daten in der Supabase-Datenbank
+    cursor.execute("""
+        INSERT INTO test_recipes (name, description, instructions, text_embedding, ingredients_embedding)
+        VALUES (%s, %s, %s, %s, %s)
+    """, (title, description, instructions, json.dumps(text_embedding), json.dumps(ingredients_embedding)))
+
+    conn.commit()
+    cursor.close()
+
+def fetch_recipes(query="soup", number=10):
+    """
+    Holt Rezepte von Spoonacular API
+    """
+    url = f"https://api.spoonacular.com/recipes/complexSearch?query={query}&number={number}&apiKey={SPOONACULAR_API_KEY}"
+    response = requests.get(url)
+    return response.json()
+
 
 def main():
-    # 1) Query-Embedding aus stdin lesen
-    raw = sys.stdin.read()
-    payload = json.loads(raw)
-    query_vec = payload["embedding"]
+    """
+    Hauptfunktion, um Rezepte zu holen und in Supabase zu speichern
+    """
+    recipes = fetch_recipes(query="soup", number=10)  # z. B. 10 Rezepte holen
 
-    # 2) Vektoren aus Supabase holen
-    vectors, meta = load_vectors()
-    if not vectors:
-      print(json.dumps({"results": [], "error": "no vectors in db"}))
-      return
-
-    # 3) Index bauen
-    index, dim = build_index(vectors)
-
-    # 4) Query auf richtige Länge bringen
-    query_vec = adjust_query_dim(query_vec, dim)
-
-    # 5) Suche
-    D, I = index.search(np.array([query_vec], dtype="float32"), k=5)
-
-    results = []
-    for dist, idx in zip(D[0].tolist(), I[0].tolist()):
-        m = meta[idx]
-        results.append(
-            {
-                "chunk_id": m["chunk_id"],
-                "recipe_id": m["recipe_id"],
-                "content": m["content"],
-                "distance": dist,
-            }
-        )
-
-    print(json.dumps({"results": results}))
+    for recipe in recipes["results"]:
+        save_recipe_to_supabase(recipe)
 
 if __name__ == "__main__":
     main()
