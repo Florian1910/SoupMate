@@ -52,16 +52,14 @@ Führe die folgenden Python-Kommandos im `server`-Verzeichnis aus, um Rezepte zu
 cd src\supabase\functions\server
 
 # Rezepte von Spoonacular importieren
-python scripts\faiss_search.py ingest --number=10
+python scripts\main.py ingest --number=10
 
 # Semantische Suche
-python scripts\faiss_search.py search-text --q="tomato soup" --k=5
+python scripts\main.py search-text --q="tomato soup" --k=5 --format
 
 # Zutaten-basierte Suche
-python scripts\faiss_search.py search-ingredients --ing "tomato" "onion" --k=5
+python scripts\main.py search-ingredients --ing "tomato" "onion" --k=5 --format
 
-# Rezept-Details anzeigen
-python scripts\faiss_search.py details --recipe-id="RECIPE_ID"
 ```
 
 ---
@@ -74,17 +72,27 @@ C:\Users\flori\OneDrive\Desktop\SoupMate\src\supabase\functions\server\
 │   ├── import_map.json
 │   └── environment.ts
 ├── 📁 services/
-│   ├── database.ts
-│   ├── spoonacular.ts
-│   └── embedding.ts
+│   ├── database.ts              # TypeScript DB Service
+│   ├── spoonacular.ts           # TypeScript Spoonacular Service
+│   └── embedding.ts             # TypeScript Embedding Service
 ├── 📁 routes/
 │   ├── recipes.ts
 │   ├── search.ts
 │   └── health.ts
-├── 📁 scripts/
-│   └── faiss_search.py
 ├── 📁 types/
 │   └── recipe.ts
+├── 📁 scripts/                  # Python ML Komponenten
+│   ├── 📁 models/
+│   │   ├── recipe.py            # Recipe Datenklassen
+│   │   └── embedding.py         # Embedding Logik
+│   ├── 📁 services/
+│   │   ├── database.py          # Python DB Service
+│   │   ├── spoonacular.py       # Python Spoonacular Service
+│   │   └── embedding_service.py # Python Embedding Service
+│   ├── 📁 utils/
+│   │   └── helpers.py           # Hilfsfunktionen
+│   ├── main.py                  # Hauptscript (CLI)
+│   └── config.py                # Python Konfiguration
 ├── server.tsx
 └── .env
 ```
