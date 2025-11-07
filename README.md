@@ -50,3 +50,15 @@ Führe den folgenden Befehl aus, um das FAISS-Skript zu starten:
 ```bash
 python faiss_search.py
 ```
+
+### Rezepte importieren (Ingest):
+
+```bash
+python faiss_search.py ingest --number=2
+```
+
+### Textbasierte Suche (Search by Description):
+
+```bash
+python faiss_search.py search-text --q="tomato" --k=2
+```
