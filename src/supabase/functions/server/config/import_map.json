@@ -3,7 +3,6 @@
     "hono": "jsr:@hono/hono",
     "hono/cors": "jsr:@hono/hono/cors",
     "hono/logger": "jsr:@hono/hono/logger",
-    "dotenv": "https://deno.land/x/dotenv/mod.ts",
-    "node-fetch": "https://deno.land/x/fetch@2.6.1/mod.ts"
+    "@supabase/supabase-js": "npm:@supabase/supabase-js"
   }
 }

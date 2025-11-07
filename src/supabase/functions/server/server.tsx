@@ -1,70 +1,54 @@
-import { config } from "dotenv";
-import { Hono } from "hono";
-import { cors } from "hono/cors";
-import { logger } from "hono/logger";
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { logger } from 'hono/logger';
 
-config();
+// Config muss zuerst importiert werden, damit dotenv lädt
+import { config } from './config/environment.ts';
+
+// Routes
+import healthRoutes from './routes/health.ts';
+import recipeRoutes from './routes/recipes.ts';
+import searchRoutes from './routes/search.ts';
 
 const app = new Hono();
-app.use("*", logger());
-app.use("*", cors());
 
-// einfache Health-Route
-app.get("/", (c) => c.json({ ok: true, msg: "SoupMate backend running 🥣" }));
+// Middleware
+app.use('*', logger());
+app.use('*', cors({
+    origin: '*',
+    allowHeaders: ['Content-Type', 'Authorization'],
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    exposeHeaders: ['Content-Length'],
+    maxAge: 600,
+}));
 
-// ----------------------------------------------------
-// 1) Query → Embedding (hier Dummy oder eigener Vektor-Generator)
-// ----------------------------------------------------
-async function embedQuery(text: string): Promise<number[]> {
-    // Falls du FAISS-Embeddings in der DB hast und nur suchst:
-    // hol dir den Vektor hier, z.B. aus Supabase oder einem Modell in Python.
-    // Aktuell einfach Dummy für Test:
-    const dummy = Array(3).fill(0.5);
-    return dummy;
-}
+// Routes registrieren
+app.route('/make-server-b187574e', healthRoutes);
+app.route('/make-server-b187574e', recipeRoutes);
+app.route('/make-server-b187574e', searchRoutes);
 
-// ----------------------------------------------------
-// 2) /search-Route (ruft Python mit FAISS auf)
-// ----------------------------------------------------
-app.post("/search", async (c) => {
-    try {
-        const body = await c.req.json().catch(() => ({}));
-        const query = body.query as string;
-        if (!query) return c.json({ error: "query missing" }, 400);
+// Root route
+app.get('/', (c) => c.json({
+    ok: true,
+    msg: "SoupMate backend running 🥣",
+    version: "1.0.0",
+    endpoints: [
+        '/make-server-b187574e/health',
+        '/make-server-b187574e/recipes',
+        '/make-server-b187574e/search'
+    ]
+}));
 
-        const embedding = await embedQuery(query);
-
-        // Python-Pfad anpassen, falls nötig
-        const pythonCmd = "C:\\Python314\\python.exe";
-
-        const cmd = new Deno.Command(pythonCmd, {
-            args: ["faiss_search.py"],
-            stdin: "piped",
-            stdout: "piped",
-            stderr: "piped",
-        });
-
-        const child = cmd.spawn();
-
-        const writer = child.stdin.getWriter();
-        await writer.write(new TextEncoder().encode(JSON.stringify({ embedding })));
-        await writer.close();
-
-        const { code, stdout, stderr } = await child.output();
-
-        if (code !== 0) {
-            const err = new TextDecoder().decode(stderr);
-            console.error("Python error:", err);
-            return c.json({ error: "python failed", detail: err }, 500);
-        }
-
-        const outText = new TextDecoder().decode(stdout || new Uint8Array());
-        const result = outText ? JSON.parse(outText) : {};
-        return c.json(result);
-    } catch (e) {
-        console.error("Search route error:", e);
-        return c.json({ error: "internal error", detail: String(e) }, 500);
-    }
+// 404 Handler
+app.notFound((c) => {
+    return c.json({ error: 'Endpoint not found' }, 404);
 });
 
-Deno.serve(app.fetch);
+// Error Handler
+app.onError((err, c) => {
+    console.error('Server error:', err);
+    return c.json({ error: 'Internal server error' }, 500);
+});
+
+console.log('🍲 SoupMate Server starting on port', config.app.port);
+Deno.serve({ port: config.app.port }, app.fetch);
