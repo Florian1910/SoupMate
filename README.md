@@ -47,19 +47,24 @@ Das Projekt kombiniert **Supabase**, **FAISS** und **Deno (Hono)**, um Rezepte z
 
 Führe die folgenden Python-Kommandos im `server`-Verzeichnis aus, um Rezepte zu importieren und die semantische Suche durchzuführen:
 
+### In das Server-Verzeichnis wechseln
+```bash 
+   cd src\supabase\functions\server
+```
+
+### Rezepte von Spoonacular importieren
 ```bash
-# In das Server-Verzeichnis wechseln
-cd src\supabase\functions\server
+   python scripts\main.py ingest --number=10
+```
 
-# Rezepte von Spoonacular importieren
-python scripts\main.py ingest --number=10
+### Semantische Suche
+```bash
+   python scripts\main.py search-text --q="tomato soup" --k=5 --format
+```
 
-# Semantische Suche
-python scripts\main.py search-text --q="tomato soup" --k=5 --format
-
-# Zutaten-basierte Suche
-python scripts\main.py search-ingredients --ing "tomato" "onion" --k=5 --format
-
+### Zutaten-basierte Suche
+```bash
+   python scripts\main.py search-ingredients --ing "tomato" "onion" --k=5 --format
 ```
 
 ---
