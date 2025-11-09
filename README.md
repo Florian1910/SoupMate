@@ -120,3 +120,28 @@ C:\Users\flori\OneDrive\Desktop\SoupMate\src\supabase\functions\server\
 - **Deno** (für das Backend): [Installation](https://deno.land/)
 - **Node.js & npm** (für das Frontend): [Installation](https://nodejs.org/)
 - **Python** (für FAISS-Skripte): [Installation](https://www.python.org/)
+
+## 🔧 **Probleme & Lösungen**
+
+Während der Einrichtung und Ausführung des Projekts traten mehrere typische Fehler auf, die hier dokumentiert und gelöst wurden, um zukünftige Setups zu vereinfachen.
+
+---
+
+## 🖥️ **Frontend-Probleme**
+
+### Vite-Fehler durch OneDrive
+**Problem:** Der Projektordner befand sich im OneDrive-Verzeichnis, wodurch einige Build-Dateien blockiert wurden.
+
+**Lösung:**
+1. Projekt außerhalb von Outlook nach zb: `C:\Dev\SoupMate` verschieben
+2. `node_modules` und `package-lock.json` löschen
+3. npm-Cache bereinigen:
+   ```bash
+   npm cache clean --force
+4. Vite neu installieren
+   ```bash
+   npm install -D vite@5.4.10
+   npm install
+   npm run dev
+
+
