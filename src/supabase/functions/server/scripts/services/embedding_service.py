@@ -190,21 +190,31 @@ class EmbeddingService:
         for p in where_params:
             final_params.append(p)
 
-        final_params.append(limit)  # %s für LIMIT im SQL
+        expanded_limit = max(20, int(limit) * 5)
+        final_params.append(expanded_limit)  # %s für LIMIT im SQL
 
 
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, final_params)
 
+                rows = cur.fetchall()
+
+                seen_titles = set()  # exakt, ohne Normalisierung
                 results = []
-                for row in cur.fetchall():
+
+                for row in rows:
                     recipe_id = row[0]
+                    name = row[1] or ""
+
+                    if name in seen_titles:
+                        continue  # Duplikat per exakt gleichem Namen überspringen
+
                     ingredients = self._get_recipe_ingredients(cur, recipe_id)
 
                     results.append({
                         "recipe_id": recipe_id,
-                        "name": row[1],
+                        "name": name,
                         "description": row[2],
                         "instructions": row[3],
                         "diet": row[4],
@@ -220,14 +230,56 @@ class EmbeddingService:
                         "distance_text": float(row[14]),
                         "distance_ingredients": float(row[15]) if row[15] is not None else None,
                         "score": float(row[16]),
-                        "distance": float(row[14]),   # 👈 kompatibel für bestehendes CLI
+                        "distance": float(row[14]),  # Back-compat fürs CLI
                         "ingredients": ingredients
                     })
+
+                    seen_titles.add(name)
+
+                    if len(results) >= limit:
+                        break
+
                 return results
 
     def search_by_ingredients(self, ingredients: List[str], limit: int = 10) -> List[Dict[str, Any]]:
-        query_text = " ".join(ingredients)
-        query_vector = embedding_model.vector_to_literal(embedding_model.embed(query_text))
+        """
+        Sucht nach Rezepten über das Zutaten-Embedding (L2 <->).
+        - Erste Zutat wird stärker gewichtet (PRIMARY_WEIGHT).
+        - Duplikate (exakt gleicher Name) werden entfernt.
+        - Es werden mehr Kandidaten geholt und danach auf `limit` gekürzt.
+        - Liefert ein Feld "ingredients" zurück (für CLI-Formatter).
+        """
+        if not ingredients:
+            return []
+
+        # -------- Gewichtung der Zutaten (erste Zutat wichtiger) --------
+        PRIMARY_WEIGHT = 2.0   # ggf. 3.0, wenn noch stärker
+        DECAY = 1.0            # 1.0 = keine Abwertung; z.B. 0.9 für leichten Abfall
+
+        # Einzelembeddings je Zutat + Gewichte bauen
+        single_vecs: List[List[float]] = []
+        weights: List[float] = []
+        for idx, ing in enumerate(ingredients):
+            v = embedding_model.embed(ing)  # -> List[float]
+            single_vecs.append(v)
+            w = (PRIMARY_WEIGHT if idx == 0 else (DECAY ** idx))
+            weights.append(w)
+
+        # Gewichtetes Mittel (komponentenweise)
+        dim = len(single_vecs[0])
+        weighted = [0.0] * dim
+        weight_sum = 0.0
+        for v, w in zip(single_vecs, weights):
+            for i in range(dim):
+                weighted[i] += w * v[i]
+            weight_sum += w
+        if weight_sum > 0:
+            weighted = [x / weight_sum for x in weighted]
+
+        query_vector = embedding_model.vector_to_literal(weighted)
+
+        # Mehr Kandidaten holen (damit nach Dedup noch genug übrig bleiben)
+        expanded_limit = max(20, int(limit) * 5)
 
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
@@ -238,26 +290,35 @@ class EmbeddingService:
                         r.diet, r.vegan, r.vegetarian, r.total_time, r.difficulty,
                         r.calories, r.protein, r.carbohydrates, r.fat,
                         r.price_per_serving,
-                        (r.ingredients_embedding <-> %s::vector) as distance
+                        (r.ingredients_embedding <-> %s::vector) AS d_ing
                     FROM {TABLE_RECIPES} r
                     ORDER BY r.ingredients_embedding <-> %s::vector
                     LIMIT %s
                     """,
-                    (query_vector, query_vector, limit)
+                    (query_vector, query_vector, expanded_limit)
                 )
 
-                results = []
-                for row in cur.fetchall():
-                    recipe_id = row[0]
+                rows = cur.fetchall()
 
-                    # Zutaten für dieses Rezept abrufen
+                # Duplikate anhand EXAKT gleichem Namen entfernen
+                seen_titles = set()
+                results: List[Dict[str, Any]] = []
+
+                for row in rows:
+                    recipe_id = row[0]
+                    name = row[1] or ""
+
+                    if name in seen_titles:
+                        continue
+
+                    # Zutatenliste für dieses Rezept holen (CLI erwartet "ingredients")
                     ingredients_list = self._get_recipe_ingredients(cur, recipe_id)
 
                     results.append({
-                        "recipe_id": row[0],
-                        "name": row[1],
+                        "recipe_id": recipe_id,
+                        "name": name,
                         "description": row[2],
-                        "instructions": row[3],  # ✅ Instructions hinzugefügt
+                        "instructions": row[3],
                         "diet": row[4],
                         "vegan": row[5],
                         "vegetarian": row[6],
@@ -268,10 +329,19 @@ class EmbeddingService:
                         "carbohydrates": row[11],
                         "fat": row[12],
                         "price_per_serving": f"{row[13]}€",
-                        "distance": float(row[14]),
-                        "ingredients": ingredients_list  # ✅ Ingredients hinzugefügt
+                        "distance": float(row[14]),              # Back-compat fürs bestehende CLI
+                        "distance_ingredients": float(row[14]),
+                        "ingredients": ingredients_list           # <- WICHTIG: für Formatter
                     })
+
+                    seen_titles.add(name)
+
+                    if len(results) >= limit:
+                        break
+
                 return results
+
+
 
     def _get_recipe_ingredients(self, cur, recipe_id: str) -> List[Dict[str, Any]]:
         """Holt alle Zutaten für ein Rezept"""
