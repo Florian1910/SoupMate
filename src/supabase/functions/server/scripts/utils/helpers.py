@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any
+from typing import Dict, Any, List
 
 def setup_logging():
     logging.basicConfig(
