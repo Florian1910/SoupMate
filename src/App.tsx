@@ -26,8 +26,8 @@ export default function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
-  const [filters, setFilters] = useState<RecipeFilters>({ 
-    dietType: "alle", 
+  const [filters, setFilters] = useState<RecipeFilters>({
+    dietType: "alle",
     difficulty: 0,
     workTime: [0, 120],
     totalTime: [0, 240],
@@ -92,16 +92,41 @@ export default function App() {
     toast.info('Erfolgreich abgemeldet');
   };
 
+  // 🔥 DIESE METHODE FEHLTE - KORRIGIERTE VERSION:
   const handleSearchResults = (results: any) => {
-    setChatHistory(prev => [...prev, {
-      type: 'user',
+    console.log('📦 APP: Search results received:', {
       query: results.query,
-      timestamp: new Date()
-    }, {
-      type: 'ai',
-      recipes: results.recipes,
-      timestamp: new Date()
-    }]);
+      recipeCount: results.recipes?.length,
+      recipes: results.recipes
+    });
+
+    if (!results.recipes || results.recipes.length === 0) {
+      console.log('❌ APP: No recipes found - checking data structure:', {
+        results: results,
+        hasRecipes: !!results.recipes,
+        recipesType: typeof results.recipes,
+        recipesLength: results.recipes?.length
+      });
+      toast.error('Keine Rezepte gefunden');
+      return;
+    }
+
+    // Füge die neue Suche zum Chat-Verlauf hinzu
+    setChatHistory(prev => [
+      ...prev,
+      {
+        type: 'user',
+        query: results.query,
+        timestamp: new Date()
+      },
+      {
+        type: 'ai',
+        recipes: results.recipes,
+        timestamp: new Date()
+      }
+    ]);
+
+    console.log('✅ APP: Chat history updated with new search results');
   };
 
   const handleBackToHome = () => {
@@ -111,8 +136,6 @@ export default function App() {
   const handleFilterChange = (newFilters: RecipeFilters) => {
     setFilters(newFilters);
   };
-
-
 
   // Scroll-to-Top functionality
   useEffect(() => {
@@ -192,12 +215,12 @@ export default function App() {
           },
         }
       );
-      
+
       if (!response.ok) {
         console.error(`Failed to load favorites: ${response.statusText}`);
         return;
       }
-      
+
       const data = await response.json();
       setFavorites(data.favorites || []);
     } catch (error) {
@@ -296,8 +319,8 @@ export default function App() {
 
   if (showLogin) {
     return (
-      <LoginPage 
-        onBack={() => setShowLogin(false)} 
+      <LoginPage
+        onBack={() => setShowLogin(false)}
         onLoginSuccess={handleLoginSuccess}
       />
     );
@@ -305,7 +328,7 @@ export default function App() {
 
   if (showProfileSetup && userId && accessToken) {
     return (
-      <ProfileSetup 
+      <ProfileSetup
         userId={userId}
         accessToken={accessToken}
         onComplete={handleProfileComplete}
@@ -322,8 +345,8 @@ export default function App() {
           isSidebarOpen && (
             <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setIsSidebarOpen(false)}>
               <div className="absolute bottom-0 left-0 right-0 max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
-                <Sidebar 
-                  isOpen={isSidebarOpen} 
+                <Sidebar
+                  isOpen={isSidebarOpen}
                   favorites={favorites}
                   onRemoveFavorite={removeFavorite}
                   onFilterChange={handleFilterChange}
@@ -332,24 +355,24 @@ export default function App() {
             </div>
           )
         ) : (
-          <Sidebar 
-            isOpen={isSidebarOpen} 
+          <Sidebar
+            isOpen={isSidebarOpen}
             favorites={favorites}
             onRemoveFavorite={removeFavorite}
             onFilterChange={handleFilterChange}
           />
         )}
-        
+
         <div className="flex-1 flex flex-col min-w-0">
-          <Header 
-            onLoginClick={() => setShowLogin(true)} 
+          <Header
+            onLoginClick={() => setShowLogin(true)}
             userName={userName}
             onLogout={handleLogout}
             onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
             isSidebarOpen={isSidebarOpen}
           />
-          
-          <main 
+
+          <main
             className="flex-1 flex flex-col bg-gradient-to-br from-[#fef7f3] via-[#ffede6] to-[#ffe8d6] relative overflow-hidden"
             style={{
               backgroundImage: `url(${logo})`,
@@ -359,11 +382,11 @@ export default function App() {
               backgroundBlendMode: 'overlay',
             }}
           >
-            <div 
+            <div
               className="absolute inset-0 bg-gradient-to-br from-[#fef7f3]/95 via-[#ffede6]/90 to-[#ffe8d6]/95"
               style={{ zIndex: 0 }}
             />
-            
+
             {/* Content Area - Scrollable */}
             <div ref={contentRef} className="flex-1 overflow-y-auto relative z-10 scroll-smooth">
               {isSearching ? (
@@ -371,14 +394,14 @@ export default function App() {
                   <RecipeSkeleton />
                 </div>
               ) : chatHistory.length > 0 ? (
-                <RecipeResults 
+                <RecipeResults
                   chatHistory={chatHistory}
                   onAddToFavorites={addFavorite}
                   onBack={handleBackToHome}
                 />
               ) : userName ? (
                 <div className="h-full flex flex-col items-center justify-center gap-6 px-8">
-                  <h2 
+                  <h2
                     className="text-3xl md:text-5xl bg-gradient-to-r from-[#ff6b35] via-[#ff8c5a] to-[#ff9966] bg-clip-text text-transparent drop-shadow-2xl animate-fade-in text-center"
                     style={{ fontFamily: 'var(--font-welcome)' }}
                   >
@@ -390,7 +413,7 @@ export default function App() {
                 </div>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center gap-6 px-8">
-                  <h2 
+                  <h2
                     className="text-2xl md:text-4xl bg-gradient-to-r from-[#ff6b35] via-[#ff8c5a] to-[#ff9966] bg-clip-text text-transparent drop-shadow-2xl text-center animate-fade-in"
                     style={{ fontFamily: 'var(--font-welcome)' }}
                   >
@@ -402,7 +425,7 @@ export default function App() {
                 </div>
               )}
             </div>
-            
+
             {/* Scroll to Top Button */}
             {showScrollTop && (
               <Button
@@ -413,17 +436,13 @@ export default function App() {
                 <ArrowUp size={20} />
               </Button>
             )}
-            
+
             {/* Search Bar - Always Visible at Bottom */}
             <div className="relative z-10 border-t border-primary/10 bg-gradient-to-b from-transparent via-[#fef7f3]/80 to-[#fef7f3]/95 backdrop-blur-sm">
               <div className="w-full max-w-3xl mx-auto px-4 md:px-8 py-4">
-                <SearchBar 
-                  userName={userName} 
-                  onSearchResults={(results) => {
-                    handleSearchResults(results);
-                    // Scroll to top after new search
-                    setTimeout(() => scrollToTop(), 100);
-                  }}
+                <SearchBar
+                  userName={userName}
+                  onSearchResults={handleSearchResults} // 🔥 Jetzt korrekt verbunden
                   filters={filters}
                   onSearchStart={() => setIsSearching(true)}
                   onSearchEnd={() => setIsSearching(false)}

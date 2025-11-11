@@ -22,10 +22,25 @@ app.use('*', cors({
     maxAge: 600,
 }));
 
-// Routes registrieren
-app.route('/make-server-b187574e', healthRoutes);
-app.route('/make-server-b187574e', recipeRoutes);
-app.route('/make-server-b187574e', searchRoutes);
+// Routes registrieren - OHNE zusätzlichen Prefix
+app.route('/health', healthRoutes);
+app.route('/recipes', recipeRoutes);
+app.route('/search', searchRoutes);
+
+app.get('/favorites/:userId', (c) => {
+  return c.json({
+    success: true,
+    message: 'Favorites endpoint - not implemented yet',
+    favorites: []
+  });
+});
+
+app.post('/favorites', (c) => {
+  return c.json({
+    success: true,
+    message: 'Add favorite endpoint - not implemented yet'
+  });
+});
 
 // Root route
 app.get('/', (c) => c.json({
@@ -33,9 +48,9 @@ app.get('/', (c) => c.json({
     msg: "SoupMate backend running 🥣",
     version: "1.0.0",
     endpoints: [
-        '/make-server-b187574e/health',
-        '/make-server-b187574e/recipes',
-        '/make-server-b187574e/search'
+        '/health',
+        '/recipes',
+        '/search'
     ]
 }));
 
