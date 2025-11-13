@@ -167,21 +167,61 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
       console.log('✅ Raw API response:', raw);
       console.log('✅ Items from response:', items);
 
-      const normalize = (r: any) => ({
-        id: r.recipe_id ?? r.id ?? String(Math.random()),
-        name: r.name ?? 'Ohne Titel',
-        description: r.description ?? '',
-        fullDescription: r.fullDescription ?? (Array.isArray(r.instructions) ? r.instructions.join('\n') : r.instructions),
-        difficulty: r.difficulty ?? 2,
-        workTime: r.work_time ?? r.workTime ?? undefined,
-        totalTime: r.total_time ?? r.totalTime ?? undefined,
-        servings: r.servings ?? undefined,
-        ingredients: r.ingredients ?? [],
-        instructions: Array.isArray(r.instructions) ? r.instructions : (r.instructions ? [r.instructions] : []),
-        isVegan: r.vegan ?? r.isVegan ?? false,
-        isVegetarian: r.vegetarian ?? r.isVegetarian ?? false,
-        allergens: r.allergens ?? []
-      });
+      // In SearchBar.tsx - Die normalize Funktion muss bleiben wie sie ist:
+      const normalize = (r: any) => {
+        console.log('🔍 Normalizing recipe:', {
+          recipe_id: r.recipe_id,
+          hasIngredients: !!r.ingredients,
+          ingredientsType: typeof r.ingredients,
+          ingredientsValue: r.ingredients
+        });
+
+        // Verarbeite Zutaten - unterstütze verschiedene Formate
+        let normalizedIngredients = [];
+
+        if (r.ingredients && Array.isArray(r.ingredients)) {
+          // Format: Array von Zutaten-Objekten mit name, amount, unit
+          normalizedIngredients = r.ingredients.map((ing: any) => {
+            if (typeof ing === 'string') {
+              return ing;
+            }
+            if (ing.name) {
+              // Baue lesbaren Zutaten-String
+              let ingredientText = ing.name;
+              if (ing.quantity_text) {
+                ingredientText = `${ing.quantity_text} ${ing.name}`;
+              } else if (ing.amount && ing.unit) {
+                ingredientText = `${ing.amount} ${ing.unit} ${ing.name}`;
+              } else if (ing.amount) {
+                ingredientText = `${ing.amount} ${ing.name}`;
+              }
+              return ingredientText;
+            }
+            return String(ing);
+          }).filter(Boolean);
+        }
+
+        return {
+          id: r.recipe_id ?? r.id ?? String(Math.random()),
+          name: r.name ?? 'Ohne Titel',
+          description: r.description ?? '',
+          fullDescription: r.fullDescription ?? (Array.isArray(r.instructions) ? r.instructions.join('\n') : r.instructions),
+          difficulty: r.difficulty ?? 2,
+          workTime: r.work_time ?? r.workTime ?? undefined,
+          totalTime: r.total_time ?? r.totalTime ?? undefined,
+          servings: r.servings ?? undefined,
+          ingredients: normalizedIngredients,
+          instructions: Array.isArray(r.instructions) ? r.instructions : (r.instructions ? [r.instructions] : []),
+          isVegan: r.vegan ?? r.isVegan ?? false,
+          isVegetarian: r.vegetarian ?? r.isVegetarian ?? false,
+          allergens: r.allergens ?? [],
+          imageUrl: r.image_url,
+          calories: r.calories,
+          protein: r.protein,
+          carbohydrates: r.carbohydrates,
+          fat: r.fat
+        };
+      };
 
       const normalized = items.map(normalize);
 

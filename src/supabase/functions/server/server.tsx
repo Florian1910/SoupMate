@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
-
+import { supabase } from './services/database.ts';
 // Config muss zuerst importiert werden, damit dotenv lädt
 import { config } from './config/environment.ts';
 
