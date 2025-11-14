@@ -158,6 +158,56 @@ async function getIngredientsForRecipes(recipeIds: string[]) {
   }
 }
 
+app.post('/debug-search', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { query } = body;
+
+    console.log('[DEBUG] Raw database query for:', query);
+
+    // 1. Einfache Abfrage ohne Filter
+    const { data: rawRecipes, error } = await supabase
+      .from('test_recipes')
+      .select('recipe_id, name')
+      .ilike('name', `%${query}%`);
+
+    if (error) throw error;
+
+    console.log('[DEBUG] Raw results:', {
+      count: rawRecipes?.length,
+      recipes: rawRecipes?.map(r => ({ id: r.recipe_id, name: r.name }))
+    });
+
+    // 2. Prüfe auf Duplikate in den Rohdaten
+    const recipeIdCounts: Record<string, number> = {};
+    rawRecipes?.forEach(recipe => {
+      recipeIdCounts[recipe.recipe_id] = (recipeIdCounts[recipe.recipe_id] || 0) + 1;
+    });
+
+    const duplicates = Object.entries(recipeIdCounts).filter(([_, count]) => count > 1);
+
+    console.log('[DEBUG] Duplicate analysis:', {
+      totalRecipes: rawRecipes?.length,
+      uniqueRecipes: new Set(rawRecipes?.map(r => r.recipe_id)).size,
+      duplicates: duplicates.length > 0 ? duplicates : 'No duplicates found'
+    });
+
+    return c.json({
+      success: true,
+      analysis: {
+        total: rawRecipes?.length,
+        unique: new Set(rawRecipes?.map(r => r.recipe_id)).size,
+        duplicates: duplicates
+      },
+      recipes: rawRecipes
+    });
+
+  } catch (err) {
+    console.error('[DEBUG] Error:', err);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // Routes
 app.get('/health', (c) => ok(c, { ok: true, service: 'search', ts: new Date().toISOString() }));
 
@@ -344,9 +394,32 @@ app.post('/', async (c) => {
 
     console.log('[SEARCH] Found recipes after filtering:', recipes?.length);
 
-    // 🔥 ALLERGIEN FILTER (clientseitig anwenden)
-    let filteredRecipes = recipes || [];
+// 🔥 EINFACHER NAMENS-BASIERTER DUPLIKAT-FILTER
+let filteredRecipes = recipes || [];
 
+const seenNames = new Set();
+const uniqueRecipes = filteredRecipes.filter(recipe => {
+  if (seenNames.has(recipe.name)) {
+    console.log(`❌ DUPLICATE REMOVED: ${recipe.recipe_id} - ${recipe.name}`);
+    return false;
+  }
+  seenNames.add(recipe.name);
+  return true;
+});
+
+console.log('[SEARCH] After removing name duplicates:', {
+  before: filteredRecipes.length,
+  after: uniqueRecipes.length,
+  removed: filteredRecipes.length - uniqueRecipes.length
+});
+
+// 🔥 SERVER-SEITIGE ERFOLGSMELDUNG
+console.log(`🎯 ${uniqueRecipes.length} eindeutige Rezepte für "${query}" gefunden`);
+
+// Dann mit uniqueRecipes weiterarbeiten...
+filteredRecipes = uniqueRecipes;
+
+    // 🔥 ALLERGIEN FILTER (clientseitig anwenden)
     if (allergies && allergies.length > 0 && filteredRecipes.length > 0) {
       filteredRecipes = filteredRecipes.filter(recipe => {
         // Annahme: Rezepte haben ein allergens Feld als Array
@@ -354,10 +427,10 @@ app.post('/', async (c) => {
         return !allergies.some(allergy =>
           recipeAllergens.some(recipeAllergen =>
             recipeAllergen.toLowerCase().includes(allergy.toLowerCase())
-          )
-);
-});
-console.log('[SEARCH] After allergy filter:', filteredRecipes.length);
+    )
+    );
+    });
+    console.log('[SEARCH] After allergy filter:', filteredRecipes.length);
     }
 
     // Zutaten aus Datenbank holen

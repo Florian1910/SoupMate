@@ -238,15 +238,29 @@ export default function App() {
     });
 
     if (!results.recipes || results.recipes.length === 0) {
-      console.log('❌ APP: No recipes found - checking data structure:', {
-        results: results,
-        hasRecipes: !!results.recipes,
-        recipesType: typeof results.recipes,
-        recipesLength: results.recipes?.length
-      });
-      toast.error('Keine Rezepte gefunden');
+      console.log('❌ APP: No recipes found');
+      // Die Error-Meldung wird bereits in SearchBar.tsx angezeigt
       return;
     }
+
+    // 🔥 BESTÄTIGUNG IN DER CONSOLE
+    console.log(`🎉 ${results.recipes.length} Rezepte werden in der UI angezeigt`);
+
+    // Finaler Sicherheitsfilter für Namens-Duplikate
+    const finalSeenNames = new Set();
+    const finalUniqueRecipes = results.recipes.filter((recipe: Recipe) => {
+      if (finalSeenNames.has(recipe.name)) {
+        console.log(`🎯 FINAL DUPLICATE REMOVAL: ${recipe.name}`);
+        return false;
+      }
+      finalSeenNames.add(recipe.name);
+      return true;
+    });
+
+    console.log('🎯 APP: Final name-based duplicate check:', {
+      before: results.recipes.length,
+      after: finalUniqueRecipes.length
+    });
 
     // Füge die neue Suche zum Chat-Verlauf hinzu
     setChatHistory(prev => [
@@ -258,12 +272,10 @@ export default function App() {
       },
       {
         type: 'ai',
-        recipes: results.recipes,
+        recipes: finalUniqueRecipes,
         timestamp: new Date()
       }
     ]);
-
-    console.log('✅ APP: Chat history updated with new search results');
   };
 
   const handleBackToHome = () => {

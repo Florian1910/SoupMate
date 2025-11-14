@@ -58,30 +58,12 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
     setIsSearching(true);
     onSearchStart?.();
 
-    toast.success(`Suchbegriff übernommen: "${term}"`);
+    // 🔥 ERSTE MELDUNG: Abfrage gestartet
+    toast.success('Abfrage gestartet – Datenbank wird angefragt…');
 
     let accessToken: string | undefined;
 
     try {
-      // MOCK-MODUS
-      if (DEV_MODE.useMockData) {
-        await new Promise(resolve => setTimeout(resolve, DEV_MODE.mockDelay));
-        const data = getMockRecipes(term, filters ?? null);
-
-        console.log('✅ Mock search successful, results:', data);
-        console.log('✅ Passing to onSearchResults:', {
-          query: term,
-          recipes: data.recipes || [data.recipe]
-        });
-
-        onSearchResults?.({
-          query: term,
-          recipes: data.recipes || [data.recipe]
-        });
-        toast.success(`Mock-Suche OK: ${data.recipes?.length ?? (data.recipe ? 1 : 0)} Treffer`);
-        return;
-      }
-
       // Geschützt: User-Token holen
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
 
@@ -124,8 +106,6 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
         hasToken: !!accessToken,
         tokenLength: accessToken?.length
       });
-
-      toast.success('Abfrage gestartet – Datenbank wird angefragt…');
 
       // Request an Edge Function
       const response = await fetch(url, {
@@ -227,22 +207,36 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
 
       const normalized = items.map(normalize);
 
-      console.log('✅ Normalized recipes:', normalized);
-      console.log('✅ onSearchResults called:', !!onSearchResults);
+      // 🔥 DUPLIKATE ENTFERNEN - Nach Rezeptnamen filtern
+      const seenNames = new Set();
+      const uniqueNormalized = normalized.filter(recipe => {
+        if (seenNames.has(recipe.name)) {
+          console.log(`🚫 DUPLICATE REMOVED: ${recipe.name}`);
+          return false;
+        }
+        seenNames.add(recipe.name);
+        return true;
+      });
 
-      // Erfolgsmeldung: Antwort erfolgreich (Trefferzahl anzeigen)
-      toast.success(`Datenbank-Abfrage OK: ${normalized.length} Treffer`);
+      console.log('✅ After removing duplicates:', {
+        before: normalized.length,
+        after: uniqueNormalized.length,
+        removed: normalized.length - uniqueNormalized.length
+      });
 
-      console.log('✅ Search successful, results:', normalized);
+      // 🔥 ZWEITE MELDUNG: Datenbank-Abfrage OK mit Trefferzahl
+      toast.success(`Datenbank-Abfrage OK: ${uniqueNormalized.length} Treffer`);
+
+      console.log('✅ Search successful, results:', uniqueNormalized);
       console.log('✅ Passing to onSearchResults:', {
         query: term,
-        recipes: normalized
+        recipes: uniqueNormalized
       });
 
       // DIESE ZEILE UNBEDINGT AUFRUFEN:
       onSearchResults?.({
         query: term,
-        recipes: normalized
+        recipes: uniqueNormalized
       });
 
     } catch (error) {
