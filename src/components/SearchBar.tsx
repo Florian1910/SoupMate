@@ -99,20 +99,23 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
         return;
       }
 
-      // Payload bauen
+      // 🔥 KORREKTER Payload MIT FILTERN
       const payload: any = {
         k: 5,
-        type: (filters?.ingredients && filters.ingredients.trim()) ? 'ingredients' : 'text'
+        type: 'text', // Immer Text-Suche, da wir über SearchBar suchen
+        query: term,
+        // 🔥 FILTER HINZUFÜGEN
+        filters: filters || {
+          dietType: "alle",
+          difficulty: 0,
+          workTime: [0, 120],
+          totalTime: [0, 240],
+          allergies: [],
+          ingredients: ""
+        }
       };
 
-      if (payload.type === 'ingredients') {
-        payload.ingredients = filters!.ingredients
-          .split(',')
-          .map(s => s.trim())
-          .filter(Boolean);
-      } else {
-        payload.query = term;
-      }
+      console.log('🔍 Search request with filters:', payload);
 
       const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.search}`;
       console.debug('[Search] Request →', {
@@ -155,7 +158,6 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
         }
       }
 
-      // 🔍 HIER KOMMEN DIE DEBUG-LOGS:
       // Antwort lesen & normalisieren
       const raw = await response.json();
       console.log('🔍 Raw API response:', raw);
@@ -167,28 +169,68 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
       console.log('✅ Raw API response:', raw);
       console.log('✅ Items from response:', items);
 
-      const normalize = (r: any) => ({
-        id: r.recipe_id ?? r.id ?? String(Math.random()),
-        name: r.name ?? 'Ohne Titel',
-        description: r.description ?? '',
-        fullDescription: r.fullDescription ?? (Array.isArray(r.instructions) ? r.instructions.join('\n') : r.instructions),
-        difficulty: r.difficulty ?? 2,
-        workTime: r.work_time ?? r.workTime ?? undefined,
-        totalTime: r.total_time ?? r.totalTime ?? undefined,
-        servings: r.servings ?? undefined,
-        ingredients: r.ingredients ?? [],
-        instructions: Array.isArray(r.instructions) ? r.instructions : (r.instructions ? [r.instructions] : []),
-        isVegan: r.vegan ?? r.isVegan ?? false,
-        isVegetarian: r.vegetarian ?? r.isVegetarian ?? false,
-        allergens: r.allergens ?? []
-      });
+      // Normalize Funktion
+      const normalize = (r: any) => {
+        console.log('🔍 Normalizing recipe:', {
+          recipe_id: r.recipe_id,
+          hasIngredients: !!r.ingredients,
+          ingredientsType: typeof r.ingredients,
+          ingredientsValue: r.ingredients
+        });
+
+        // Verarbeite Zutaten - unterstütze verschiedene Formate
+        let normalizedIngredients = [];
+
+        if (r.ingredients && Array.isArray(r.ingredients)) {
+          // Format: Array von Zutaten-Objekten mit name, amount, unit
+          normalizedIngredients = r.ingredients.map((ing: any) => {
+            if (typeof ing === 'string') {
+              return ing;
+            }
+            if (ing.name) {
+              // Baue lesbaren Zutaten-String
+              let ingredientText = ing.name;
+              if (ing.quantity_text) {
+                ingredientText = `${ing.quantity_text} ${ing.name}`;
+              } else if (ing.amount && ing.unit) {
+                ingredientText = `${ing.amount} ${ing.unit} ${ing.name}`;
+              } else if (ing.amount) {
+                ingredientText = `${ing.amount} ${ing.name}`;
+              }
+              return ingredientText;
+            }
+            return String(ing);
+          }).filter(Boolean);
+        }
+
+        return {
+          id: r.recipe_id ?? r.id ?? String(Math.random()),
+          name: r.name ?? 'Ohne Titel',
+          description: r.description ?? '',
+          fullDescription: r.fullDescription ?? (Array.isArray(r.instructions) ? r.instructions.join('\n') : r.instructions),
+          difficulty: r.difficulty ?? 2,
+          workTime: r.work_time ?? r.workTime ?? undefined,
+          totalTime: r.total_time ?? r.totalTime ?? undefined,
+          servings: r.servings ?? undefined,
+          ingredients: normalizedIngredients,
+          instructions: Array.isArray(r.instructions) ? r.instructions : (r.instructions ? [r.instructions] : []),
+          isVegan: r.vegan ?? r.isVegan ?? false,
+          isVegetarian: r.vegetarian ?? r.isVegetarian ?? false,
+          allergens: r.allergens ?? [],
+          imageUrl: r.image_url,
+          calories: r.calories,
+          protein: r.protein,
+          carbohydrates: r.carbohydrates,
+          fat: r.fat
+        };
+      };
 
       const normalized = items.map(normalize);
 
       console.log('✅ Normalized recipes:', normalized);
       console.log('✅ onSearchResults called:', !!onSearchResults);
 
-      // ✅ Erfolgsmeldung: Antwort erfolgreich (Trefferzahl anzeigen)
+      // Erfolgsmeldung: Antwort erfolgreich (Trefferzahl anzeigen)
       toast.success(`Datenbank-Abfrage OK: ${normalized.length} Treffer`);
 
       console.log('✅ Search successful, results:', normalized);
@@ -225,12 +267,6 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
       setIsSearching(false);
       onSearchEnd?.();
     }
-  };
-
-  // ... restlicher Code (getMockRecipes, handleKeyPress, etc.) bleibt gleich ...
-  const getMockRecipes = (query: string, filters: RecipeFilters | null) => {
-    // Mock-Daten Implementierung hier...
-    return { recipes: [] };
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {

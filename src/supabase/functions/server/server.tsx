@@ -1,14 +1,15 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
-
+import { supabase } from './services/database.ts';
 // Config muss zuerst importiert werden, damit dotenv lädt
 import { config } from './config/environment.ts';
-
 // Routes
 import healthRoutes from './routes/health.ts';
 import recipeRoutes from './routes/recipes.ts';
 import searchRoutes from './routes/search.ts';
+// In server.ts - Nach den anderen imports
+import favoritesRoutes from './routes/favorites.ts';
 
 const app = new Hono();
 
@@ -26,21 +27,7 @@ app.use('*', cors({
 app.route('/health', healthRoutes);
 app.route('/recipes', recipeRoutes);
 app.route('/search', searchRoutes);
-
-app.get('/favorites/:userId', (c) => {
-  return c.json({
-    success: true,
-    message: 'Favorites endpoint - not implemented yet',
-    favorites: []
-  });
-});
-
-app.post('/favorites', (c) => {
-  return c.json({
-    success: true,
-    message: 'Add favorite endpoint - not implemented yet'
-  });
-});
+app.route('/favorites', favoritesRoutes);
 
 // Root route
 app.get('/', (c) => c.json({

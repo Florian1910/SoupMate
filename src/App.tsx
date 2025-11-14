@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Header } from "./components/Header";
 import { SearchBar } from "./components/SearchBar";
 import { Sidebar, Recipe, RecipeFilters } from "./components/Sidebar";
@@ -13,6 +13,44 @@ import { toast } from "sonner@2.0.3";
 import { ArrowUp } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { publicAnonKey, projectId } from './utils/supabase/info';
+
+// Error Boundary Komponente - VOR der App Komponente
+const ErrorBoundary = ({ children }: { children: React.ReactNode }) => {
+  const [hasError, setHasError] = useState(false);
+  const [errorInfo, setErrorInfo] = useState<string>('');
+
+  useEffect(() => {
+    const handleError = (error: ErrorEvent) => {
+      console.error('Error caught by boundary:', error);
+      setErrorInfo(error.error?.toString() || 'Unknown error');
+      setHasError(true);
+    };
+
+    window.addEventListener('error', handleError);
+    return () => window.removeEventListener('error', handleError);
+  }, []);
+
+  if (hasError) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-red-50">
+        <div className="text-center p-8">
+          <h2 className="text-2xl text-red-600 mb-4">Ein Fehler ist aufgetreten</h2>
+          <pre className="text-sm text-red-800 bg-white p-4 rounded mb-4 overflow-auto max-w-2xl">
+            {errorInfo}
+          </pre>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-primary text-white rounded"
+          >
+            Seite neu laden
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+};
 
 export default function App() {
   const [showLogin, setShowLogin] = useState(false);
@@ -34,6 +72,106 @@ export default function App() {
     allergies: [],
     ingredients: ""
   });
+
+  // KORRIGIERTE removeFavorite Funktion - VOR der JSX definiert
+  const removeFavorite = async (recipeId: string) => {
+    console.log('🔄 removeFavorite called:', { recipeId, userId, accessToken });
+
+    if (!userId || !accessToken) {
+      console.log('❌ No user ID or access token');
+      return;
+    }
+
+    try {
+      console.log('📤 Sending delete request to server...');
+
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-b187574e/favorites`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          recipe_id: recipeId
+        }),
+      });
+
+      console.log('📥 Server response:', response.status);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('❌ Server error:', errorData);
+        throw new Error(`Failed to remove favorite: ${response.status}`);
+      }
+
+      // Entferne lokal
+      const newFavorites = favorites.filter(f => f.id !== recipeId);
+      setFavorites(newFavorites);
+      toast.success("Aus Favoriten entfernt");
+
+    } catch (error) {
+      console.error('❌ Error removing favorite:', error);
+      toast.error("Fehler beim Entfernen aus Favoriten");
+    }
+  };
+
+  // In App.tsx - KORRIGIERTE addFavorite Funktion
+  const addFavorite = async (recipe: Recipe) => {
+    console.log('🔄 addFavorite called:', { recipe, userId, accessToken });
+
+    if (!userId || !accessToken) {
+      console.log('❌ No user ID or access token');
+      toast.error("Bitte melde dich an, um Favoriten zu speichern");
+      return;
+    }
+
+    // Check if already favorited
+    if (favorites.some(f => f.id === recipe.id)) {
+      toast.info("Dieses Rezept ist bereits in deinen Favoriten");
+      return;
+    }
+
+    try {
+      console.log('📤 Sending favorite to server...');
+
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-b187574e/favorites`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          recipe_id: recipe.id,
+          recipe_data: recipe // Optional: Falls du die Rezeptdaten speichern willst
+        }),
+      });
+
+      console.log('📥 Server response:', response.status);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('❌ Server error:', errorData);
+        throw new Error(`Failed to add favorite: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ Favorite added successfully:', data);
+
+      // Füge lokal hinzu für sofortiges Feedback
+      const newFavorites = [...favorites, recipe];
+      setFavorites(newFavorites);
+      toast.success(`${recipe.name} zu Favoriten hinzugefügt! ❤️`);
+
+    } catch (error) {
+      console.error('❌ Error adding favorite:', error);
+      toast.error("Fehler beim Hinzufügen zu Favoriten");
+    }
+  };
+
+  const handleFilterChange = useCallback((newFilters: RecipeFilters) => {
+    console.log('🎯 Global filters updated:', newFilters);
+    setFilters(newFilters);
+  }, []);
 
   // Handle successful login/registration
   const handleLoginSuccess = async (newUserId: string, newAccessToken: string, needsProfile: boolean) => {
@@ -92,7 +230,6 @@ export default function App() {
     toast.info('Erfolgreich abgemeldet');
   };
 
-  // 🔥 DIESE METHODE FEHLTE - KORRIGIERTE VERSION:
   const handleSearchResults = (results: any) => {
     console.log('📦 APP: Search results received:', {
       query: results.query,
@@ -131,10 +268,6 @@ export default function App() {
 
   const handleBackToHome = () => {
     setChatHistory([]);
-  };
-
-  const handleFilterChange = (newFilters: RecipeFilters) => {
-    setFilters(newFilters);
   };
 
   // Scroll-to-Top functionality
@@ -177,6 +310,7 @@ export default function App() {
   // Load favorites from database using user_id
   const loadFavoritesFromDb = async (uid: string, token: string) => {
     try {
+      console.log('🔄 Loading favorites for user:', uid);
       const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-b187574e/favorites/${uid}`, {
         method: 'GET',
         headers: {
@@ -186,134 +320,13 @@ export default function App() {
 
       if (response.ok) {
         const data = await response.json();
+        console.log('✅ Favorites loaded:', data.favorites);
         setFavorites(data.favorites || []);
+      } else {
+        console.error('❌ Failed to load favorites:', response.status);
       }
     } catch (error) {
-      console.error('Error loading favorites:', error);
-    }
-  };
-
-  // Legacy function for backward compatibility
-  const loadFavorites = async (name: string) => {
-    if (DEV_MODE.useMockData) {
-      // Mock-Modus: Lade aus localStorage
-      const stored = localStorage.getItem(`favorites_${name}`);
-      if (stored) {
-        setFavorites(JSON.parse(stored));
-      }
-      return;
-    }
-
-    try {
-      const response = await fetch(
-        `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.favorites}/${name}`,
-        {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`
-          },
-        }
-      );
-
-      if (!response.ok) {
-        console.error(`Failed to load favorites: ${response.statusText}`);
-        return;
-      }
-
-      const data = await response.json();
-      setFavorites(data.favorites || []);
-    } catch (error) {
-      console.error(`Error loading favorites: ${error}`);
-    }
-  };
-
-  const addFavorite = async (recipe: Recipe) => {
-    if (!userName) {
-      toast.error("Bitte melde dich an, um Favoriten zu speichern");
-      return;
-    }
-
-    // Check if already favorited
-    if (favorites.some(f => f.id === recipe.id)) {
-      toast.info("Dieses Rezept ist bereits in deinen Favoriten");
-      return;
-    }
-
-    if (DEV_MODE.useMockData) {
-      // Mock-Modus: Speichere in localStorage
-      const newFavorites = [...favorites, recipe];
-      setFavorites(newFavorites);
-      localStorage.setItem(`favorites_${userName}`, JSON.stringify(newFavorites));
-      toast.success(`${recipe.name} zu Favoriten hinzugefügt! ❤️`);
-      return;
-    }
-
-    try {
-      const response = await fetch(
-        `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.favorites}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`
-          },
-          body: JSON.stringify({ userName, recipe }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error(`Failed to add favorite: ${errorData.error}`);
-        return;
-      }
-
-      const data = await response.json();
-      setFavorites(data.favorites);
-      toast.success(`${recipe.name} zu Favoriten hinzugefügt! ❤️`);
-    } catch (error) {
-      console.error(`Error adding favorite: ${error}`);
-      toast.error("Fehler beim Hinzufügen zu Favoriten");
-    }
-  };
-
-  const removeFavorite = async (recipeId: string) => {
-    if (!userName) return;
-
-    if (DEV_MODE.useMockData) {
-      // Mock-Modus: Entferne aus localStorage
-      const newFavorites = favorites.filter(f => f.id !== recipeId);
-      setFavorites(newFavorites);
-      localStorage.setItem(`favorites_${userName}`, JSON.stringify(newFavorites));
-      toast.success("Aus Favoriten entfernt");
-      return;
-    }
-
-    try {
-      const response = await fetch(
-        `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.favorites}`,
-        {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`
-          },
-          body: JSON.stringify({ userName, recipeId }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error(`Failed to remove favorite: ${errorData.error}`);
-        return;
-      }
-
-      const data = await response.json();
-      setFavorites(data.favorites);
-      toast.success("Aus Favoriten entfernt");
-    } catch (error) {
-      console.error(`Error removing favorite: ${error}`);
-      toast.error("Fehler beim Entfernen aus Favoriten");
+      console.error('❌ Error loading favorites:', error);
     }
   };
 
@@ -337,7 +350,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <ErrorBoundary>
       <Toaster position="top-center" richColors />
       <div className={`flex h-screen overflow-hidden ${isMobile ? 'flex-col' : ''}`}>
         {/* Sidebar - Drawer on Mobile */}
@@ -442,7 +455,7 @@ export default function App() {
               <div className="w-full max-w-3xl mx-auto px-4 md:px-8 py-4">
                 <SearchBar
                   userName={userName}
-                  onSearchResults={handleSearchResults} // 🔥 Jetzt korrekt verbunden
+                  onSearchResults={handleSearchResults}
                   filters={filters}
                   onSearchStart={() => setIsSearching(true)}
                   onSearchEnd={() => setIsSearching(false)}
@@ -452,6 +465,6 @@ export default function App() {
           </main>
         </div>
       </div>
-    </>
+    </ErrorBoundary>
   );
 }
