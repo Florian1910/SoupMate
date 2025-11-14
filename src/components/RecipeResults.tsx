@@ -213,7 +213,22 @@ export function RecipeResults({ chatHistory, onAddToFavorites, onBack }: RecipeR
                                     <Button
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        onAddToFavorites(recipe);
+                                        console.log('⭐ Adding to favorites:', recipe);
+                                        onAddToFavorites({
+                                          id: recipe.id,
+                                          name: recipe.name,
+                                          description: recipe.description,
+                                          difficulty: recipe.difficulty,
+                                          workTime: recipe.workTime,
+                                          totalTime: recipe.totalTime,
+                                          servings: recipe.servings,
+                                          ingredients: recipe.ingredients,
+                                          instructions: recipe.instructions,
+                                          isVegan: recipe.isVegan,
+                                          isVegetarian: recipe.isVegetarian,
+                                          allergens: recipe.allergens,
+                                          imageUrl: recipe.imageUrl
+                                        });
                                       }}
                                       variant="ghost"
                                       size="icon"

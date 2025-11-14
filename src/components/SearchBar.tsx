@@ -99,20 +99,23 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
         return;
       }
 
-      // Payload bauen
+      // 🔥 KORREKTER Payload MIT FILTERN
       const payload: any = {
         k: 5,
-        type: (filters?.ingredients && filters.ingredients.trim()) ? 'ingredients' : 'text'
+        type: 'text', // Immer Text-Suche, da wir über SearchBar suchen
+        query: term,
+        // 🔥 FILTER HINZUFÜGEN
+        filters: filters || {
+          dietType: "alle",
+          difficulty: 0,
+          workTime: [0, 120],
+          totalTime: [0, 240],
+          allergies: [],
+          ingredients: ""
+        }
       };
 
-      if (payload.type === 'ingredients') {
-        payload.ingredients = filters!.ingredients
-          .split(',')
-          .map(s => s.trim())
-          .filter(Boolean);
-      } else {
-        payload.query = term;
-      }
+      console.log('🔍 Search request with filters:', payload);
 
       const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.search}`;
       console.debug('[Search] Request →', {
@@ -155,7 +158,6 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
         }
       }
 
-      // 🔍 HIER KOMMEN DIE DEBUG-LOGS:
       // Antwort lesen & normalisieren
       const raw = await response.json();
       console.log('🔍 Raw API response:', raw);
@@ -167,7 +169,7 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
       console.log('✅ Raw API response:', raw);
       console.log('✅ Items from response:', items);
 
-      // In SearchBar.tsx - Die normalize Funktion muss bleiben wie sie ist:
+      // Normalize Funktion
       const normalize = (r: any) => {
         console.log('🔍 Normalizing recipe:', {
           recipe_id: r.recipe_id,
@@ -228,7 +230,7 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
       console.log('✅ Normalized recipes:', normalized);
       console.log('✅ onSearchResults called:', !!onSearchResults);
 
-      // ✅ Erfolgsmeldung: Antwort erfolgreich (Trefferzahl anzeigen)
+      // Erfolgsmeldung: Antwort erfolgreich (Trefferzahl anzeigen)
       toast.success(`Datenbank-Abfrage OK: ${normalized.length} Treffer`);
 
       console.log('✅ Search successful, results:', normalized);
@@ -265,12 +267,6 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
       setIsSearching(false);
       onSearchEnd?.();
     }
-  };
-
-  // ... restlicher Code (getMockRecipes, handleKeyPress, etc.) bleibt gleich ...
-  const getMockRecipes = (query: string, filters: RecipeFilters | null) => {
-    // Mock-Daten Implementierung hier...
-    return { recipes: [] };
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {

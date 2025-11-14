@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Star, Leaf, Heart, X, Clock, AlertCircle, ChefHat, UtensilsCrossed, Utensils } from "lucide-react";
 import { Slider } from "./ui/slider";
 import { Input } from "./ui/input";
@@ -40,9 +40,10 @@ export function Sidebar({ isOpen, favorites, onRemoveFavorite, onFilterChange }:
   const [selectedAllergies, setSelectedAllergies] = useState<string[]>([]);
   const [ingredients, setIngredients] = useState<string>("");
 
-  const notifyFilterChange = (updates: Partial<RecipeFilters> = {}) => {
+  // In Sidebar.tsx - sicherstellen dass Filter korrekt aktualisiert werden
+  const notifyFilterChange = useCallback((updates: Partial<RecipeFilters> = {}) => {
     if (onFilterChange) {
-      onFilterChange({
+      const newFilters = {
         dietType: selectedDiet,
         difficulty: selectedDifficulty,
         workTime,
@@ -50,10 +51,13 @@ export function Sidebar({ isOpen, favorites, onRemoveFavorite, onFilterChange }:
         allergies: selectedAllergies,
         ingredients,
         ...updates
-      });
+      };
+      console.log('🔄 Filter changed:', newFilters);
+      onFilterChange(newFilters);
     }
-  };
+  }, [selectedDiet, selectedDifficulty, workTime, totalTime, selectedAllergies, ingredients, onFilterChange]);
 
+  // Jede Filter-Änderung sollte notifyFilterChange aufrufen
   const handleDietChange = (diet: DietType) => {
     setSelectedDiet(diet);
     notifyFilterChange({ dietType: diet });
