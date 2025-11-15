@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Clock, ChefHat, Heart, Star, ArrowLeft, Users, AlertCircle, MessageCircle, ChevronDown, ChevronUp, Utensils } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
@@ -43,6 +43,12 @@ interface RecipeResultsProps {
 
 export function RecipeResults({ chatHistory, onAddToFavorites, onBack }: RecipeResultsProps) {
   const [expandedRecipeId, setExpandedRecipeId] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // 🔥 AUTO-SCROLL ZUR NEUESTEN NACHRICHT (UNTEN)
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatHistory]);
 
   if (!chatHistory || chatHistory.length === 0) {
     return null;
@@ -80,7 +86,7 @@ export function RecipeResults({ chatHistory, onAddToFavorites, onBack }: RecipeR
         </div>
       </div>
 
-      {/* Chat Messages */}
+      {/* Chat Messages - URSPRÜNGLICHE REIHENFOLGE: NEUE NACHRICHTEN UNTEN */}
       <div className="w-full max-w-5xl mx-auto px-6">
         <div className="space-y-4 pb-6">
           {chatHistory.map((message, index) => (
@@ -197,12 +203,12 @@ export function RecipeResults({ chatHistory, onAddToFavorites, onBack }: RecipeR
                                     {/* 🔥 NÄHRWERTE - Kompakt angezeigt */}
                                     {(recipe.calories || recipe.protein) && (
                                       <div className="pt-2 border-t border-primary/10">
-                                        <h4 className="font-semibold text-xs mb-1">Nährwerte (pro Portion):</h4>
+                                        <h4 className="font-semibold text-xs mb-1">Nutrition (per serving):</h4>
                                         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
                                           {recipe.calories && <span>🔥 {recipe.calories} kcal</span>}
                                           {recipe.protein && <span>💪 {recipe.protein}g Protein</span>}
-                                          {recipe.carbohydrates && <span>🌾 {recipe.carbohydrates}g Kohlenhydrate</span>}
-                                          {recipe.fat && <span>🥑 {recipe.fat}g Fett</span>}
+                                          {recipe.carbohydrates && <span>🌾 {recipe.carbohydrates}g Carbs</span>}
+                                          {recipe.fat && <span>🥑 {recipe.fat}g Fat</span>}
                                         </div>
                                       </div>
                                     )}
@@ -284,12 +290,19 @@ export function RecipeResults({ chatHistory, onAddToFavorites, onBack }: RecipeR
                                           <div className="bg-white/50 rounded-lg p-3 border border-primary/10">
                                             {recipe.ingredients.length > 0 ? (
                                               <ul className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
-                                                {recipe.ingredients.map((ingredient, idx) => (
-                                                  <li key={idx} className="flex items-start gap-2 text-sm">
-                                                    <span className="text-primary mt-0.5">•</span>
-                                                    <span className="text-muted-foreground">{ingredient}</span>
-                                                  </li>
-                                                ))}
+                                                {recipe.ingredients.map((ingredient, idx) => {
+                                                  // 🔥 BEHANDLE SOWOHL STRINGS ALS OBJEKTE
+                                                  const displayText = typeof ingredient === 'string'
+                                                    ? ingredient
+                                                    : ingredient.display || ingredient.name || String(ingredient);
+
+                                                  return (
+                                                    <li key={idx} className="flex items-start gap-2 text-sm">
+                                                      <span className="text-primary mt-0.5">•</span>
+                                                      <span className="text-muted-foreground">{displayText}</span>
+                                                    </li>
+                                                  );
+                                                })}
                                               </ul>
                                             ) : (
                                               <p className="text-sm text-muted-foreground italic text-center py-2">
@@ -331,6 +344,9 @@ export function RecipeResults({ chatHistory, onAddToFavorites, onBack }: RecipeR
               ) : null}
             </div>
           ))}
+
+          {/* 🔥 AUTO-SCROLL ANCHOR - FÜR NEUESTE NACHRICHT (UNTEN) */}
+          <div ref={messagesEndRef} />
         </div>
       </div>
     </div>

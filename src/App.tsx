@@ -13,8 +13,9 @@ import { toast } from "sonner@2.0.3";
 import { ArrowUp } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { publicAnonKey, projectId } from './utils/supabase/info';
+import { supabase } from './utils/supabase/client';
 
-// Error Boundary Komponente - VOR der App Komponente
+// Error Boundary Komponente
 const ErrorBoundary = ({ children }: { children: React.ReactNode }) => {
   const [hasError, setHasError] = useState(false);
   const [errorInfo, setErrorInfo] = useState<string>('');
@@ -63,6 +64,7 @@ export default function App() {
   const [chatHistory, setChatHistory] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const contentRef = useRef<HTMLDivElement>(null);
   const [filters, setFilters] = useState<RecipeFilters>({
     dietType: "alle",
@@ -73,7 +75,70 @@ export default function App() {
     ingredients: ""
   });
 
-  // KORRIGIERTE removeFavorite Funktion - VOR der JSX definiert
+  // 🔥 Vereinfachte Session Initialisierung
+  useEffect(() => {
+    const initializeAuth = async () => {
+      try {
+        console.log('🔍 Initializing auth...');
+        setIsLoading(true);
+
+        // Warte kurz um Race Conditions zu vermeiden
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const { data: { session }, error } = await supabase.auth.getSession();
+
+        if (error) {
+          console.error('Error getting session:', error);
+          setIsLoading(false);
+          return;
+        }
+
+        if (session?.user) {
+          console.log('✅ Existing session found:', session.user.id);
+          setUserId(session.user.id);
+          setAccessToken(session.access_token);
+          await loadUserProfile(session.user.id, session.access_token);
+        } else {
+          console.log('ℹ️ No existing session found');
+        }
+      } catch (error) {
+        console.error('Error in auth initialization:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initializeAuth();
+
+    // Auth State Listener für zukünftige Änderungen
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('🔐 Auth state changed:', event);
+
+        if (event === 'SIGNED_IN' && session) {
+          console.log('✅ User signed in:', session.user.id);
+          setUserId(session.user.id);
+          setAccessToken(session.access_token);
+          await loadUserProfile(session.user.id, session.access_token);
+        } else if (event === 'SIGNED_OUT') {
+          console.log('🚪 User signed out');
+          setUserId(undefined);
+          setAccessToken(undefined);
+          setUserName(undefined);
+          setFavorites([]);
+          setChatHistory([]);
+          setShowProfileSetup(false);
+        } else if (event === 'TOKEN_REFRESHED' && session) {
+          console.log('🔄 Token refreshed');
+          setAccessToken(session.access_token);
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // KORRIGIERTE removeFavorite Funktion
   const removeFavorite = async (recipeId: string) => {
     console.log('🔄 removeFavorite called:', { recipeId, userId, accessToken });
 
@@ -115,7 +180,7 @@ export default function App() {
     }
   };
 
-  // In App.tsx - KORRIGIERTE addFavorite Funktion
+  // KORRIGIERTE addFavorite Funktion
   const addFavorite = async (recipe: Recipe) => {
     console.log('🔄 addFavorite called:', { recipe, userId, accessToken });
 
@@ -142,7 +207,7 @@ export default function App() {
         },
         body: JSON.stringify({
           recipe_id: recipe.id,
-          recipe_data: recipe // Optional: Falls du die Rezeptdaten speichern willst
+          recipe_data: recipe
         }),
       });
 
@@ -173,24 +238,24 @@ export default function App() {
     setFilters(newFilters);
   }, []);
 
-  // Handle successful login/registration
+  // 🔥 KORRIGIERTE handleLoginSuccess - Kein automatisches Profil-Setup mehr
   const handleLoginSuccess = async (newUserId: string, newAccessToken: string, needsProfile: boolean) => {
+    console.log('✅ Login success:', { newUserId, needsProfile });
+
+    // Setze die Werte direkt (nicht auf den Listener warten)
     setUserId(newUserId);
     setAccessToken(newAccessToken);
     setShowLogin(false);
 
-    if (needsProfile) {
-      // New user - show profile setup
-      setShowProfileSetup(true);
-    } else {
-      // Existing user - load profile from database
-      await loadUserProfile(newUserId, newAccessToken);
-    }
+    // Lade das Profil sofort
+    await loadUserProfile(newUserId, newAccessToken);
   };
 
   // Load user profile from database
   const loadUserProfile = async (uid: string, token: string) => {
     try {
+      console.log('👤 Loading user profile for:', uid);
+
       const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-b187574e/auth/profile/${uid}`, {
         method: 'GET',
         headers: {
@@ -199,13 +264,16 @@ export default function App() {
       });
 
       const data = await response.json();
+      console.log('📋 Profile response:', data);
 
       if (response.ok && data.profile) {
         setUserName(data.profile.full_name);
+        console.log('✅ Profile loaded:', data.profile.full_name);
         // Load favorites using user_id
         await loadFavoritesFromDb(uid, token);
       } else {
         // Profile doesn't exist, show setup
+        console.log('📝 No profile found, showing setup');
         setShowProfileSetup(true);
       }
     } catch (error) {
@@ -218,16 +286,29 @@ export default function App() {
   const handleProfileComplete = (fullName: string) => {
     setUserName(fullName);
     setShowProfileSetup(false);
+    toast.success(`Willkommen ${fullName}!`);
   };
 
-  const handleLogout = () => {
-    setUserId(undefined);
-    setAccessToken(undefined);
-    setUserName(undefined);
-    setFavorites([]);
-    setChatHistory([]);
-    localStorage.removeItem('soupmate_session');
-    toast.info('Erfolgreich abgemeldet');
+  // 🔥 KORRIGIERTE handleLogout Funktion
+  const handleLogout = async () => {
+    try {
+      console.log('🚪 Logging out...');
+
+      // Sign out from Supabase
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Logout error:', error);
+        toast.error('Fehler beim Abmelden');
+        return;
+      }
+
+      // Der Auth State Listener wird den Rest erledigen
+      console.log('✅ Logout successful');
+
+    } catch (error) {
+      console.error('Logout error:', error);
+      toast.error('Fehler beim Abmelden');
+    }
   };
 
   const handleSearchResults = (results: any) => {
@@ -239,11 +320,9 @@ export default function App() {
 
     if (!results.recipes || results.recipes.length === 0) {
       console.log('❌ APP: No recipes found');
-      // Die Error-Meldung wird bereits in SearchBar.tsx angezeigt
       return;
     }
 
-    // 🔥 BESTÄTIGUNG IN DER CONSOLE
     console.log(`🎉 ${results.recipes.length} Rezepte werden in der UI angezeigt`);
 
     // Finaler Sicherheitsfilter für Namens-Duplikate
@@ -262,9 +341,9 @@ export default function App() {
       after: finalUniqueRecipes.length
     });
 
-    // Füge die neue Suche zum Chat-Verlauf hinzu
+    // 🔥 KORREKTUR: Neue Nachrichten werden am ENDE des Arrays hinzugefügt (unten)
     setChatHistory(prev => [
-      ...prev,
+      ...prev, // Alte Nachrichten bleiben oben
       {
         type: 'user',
         query: results.query,
@@ -332,7 +411,7 @@ export default function App() {
 
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Favorites loaded:', data.favorites);
+        console.log('✅ Favorites loaded:', data.favorites?.length || 0);
         setFavorites(data.favorites || []);
       } else {
         console.error('❌ Failed to load favorites:', response.status);
@@ -341,6 +420,18 @@ export default function App() {
       console.error('❌ Error loading favorites:', error);
     }
   };
+
+  // 🔥 Loading screen während der Initialisierung
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-[#fef7f3] via-[#ffede6] to-[#ffe8d6]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#ff6b35] mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Lade...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (showLogin) {
     return (
