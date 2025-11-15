@@ -126,6 +126,71 @@ const allergyKeywords: Record<string, string[]> = {
   ]
 };
 
+// Funktion zur Zutaten-Filterung mit Bindewörter-Ersetzung
+function filterByIngredients(recipes: any[], ingredientsFilter: string): any[] {
+  if (!ingredientsFilter || ingredientsFilter.trim() === '') {
+    console.log('[INGREDIENTS] No ingredients filter');
+    return recipes;
+  }
+
+  // 🔥 BINDEWÖRTER DURCH KOMMAS ERSETZEN
+  const normalizedInput = ingredientsFilter
+    .toLowerCase()
+    // Ersetze verschiedene Bindewörter durch Kommas
+    .replace(/\b(and|und|&|with|mit|plus|also|as well as|lastly|last|\+)\b/gi, ',')
+    // Entferne überflüssige Leerzeichen um Kommas
+    .replace(/\s*,\s*/g, ',')
+    // Entferne überflüssige Kommas
+    .replace(/,+/g, ',')
+    .replace(/^,|,$/g, '');
+
+  const searchTerms = normalizedInput
+    .split(',')
+    .map(term => term.trim())
+    .filter(term => term !== '');
+
+  console.log(`[INGREDIENTS] Original input: "${ingredientsFilter}"`);
+  console.log(`[INGREDIENTS] Normalized input: "${normalizedInput}"`);
+  console.log(`[INGREDIENTS] Filtering ${recipes.length} recipes for ingredients: ${searchTerms.join(', ')}`);
+
+  const filtered = recipes.filter(recipe => {
+    // Sicherstellen, dass ingredients definiert ist
+    const ingredientsArray = recipe.ingredients || [];
+
+    // Sammle alle Zutaten des Rezepts in einem String (lowercase für case-insensitive Suche)
+    const allIngredients = ingredientsArray
+      .map((ing: any) => {
+        if (typeof ing === 'string') {
+          return ing.toLowerCase();
+        } else if (ing && typeof ing === 'object' && ing.name) {
+          return ing.name.toLowerCase();
+        }
+        return '';
+      })
+      .join(' ')
+      .toLowerCase();
+
+    // Prüfe ob alle Suchbegriffe in den Zutaten vorkommen (AND-Suche)
+    const allTermsFound = searchTerms.every(term =>
+      allIngredients.includes(term.toLowerCase())
+    );
+
+    if (!allTermsFound) {
+      const missingTerms = searchTerms.filter(term =>
+        !allIngredients.includes(term.toLowerCase())
+      );
+      console.log(`[INGREDIENTS] ❌ Excluded: "${recipe.name}" - Missing: ${missingTerms.join(', ')}`);
+      return false;
+    }
+
+    console.log(`[INGREDIENTS] ✅ Included: "${recipe.name}"`);
+    return true;
+  });
+
+  console.log(`[INGREDIENTS] Filter result: ${recipes.length} -> ${filtered.length} recipes`);
+  return filtered;
+}
+
 // Verbesserte Funktion zur Allergie-Filterung
 function filterByAllergies(recipes: any[], allergies: string[]): any[] {
   if (!allergies || allergies.length === 0) {
@@ -466,7 +531,7 @@ app.get('/debug', async (c) => {
   }
 });
 
-// Haupt-Suche Route - VOLLSTÄNDIG KORRIGIERT
+// Haupt-Suche Route - MIT ZUTATEN-FILTER
 app.post('/', async (c) => {
   const t0 = Date.now();
 
@@ -494,7 +559,7 @@ app.post('/', async (c) => {
       workTime = [0, 120],
       totalTime = [0, 240],
       allergies = [],
-      ingredients = ''
+      ingredients: ingredientsFilter = ''  // <- Zutaten-Filter
     } = filters;
 
     console.log('[SEARCH] Extracted filters:', {
@@ -503,7 +568,7 @@ app.post('/', async (c) => {
       workTime,
       totalTime,
       allergies,
-      ingredients
+      ingredientsFilter
     });
 
     // 🔥 DATENBANKABFRAGE MIT FILTERN AUFBAUEN
@@ -544,7 +609,7 @@ app.post('/', async (c) => {
       }
     }
 
-    // Text-Suche
+    // Text-Suche (Hauptsuchbegriff)
     if (type === 'text' && query) {
       dbQuery = dbQuery.or(`name.ilike.%${query}%,description.ilike.%${query}%`);
     }
@@ -604,8 +669,15 @@ app.post('/', async (c) => {
         ingredients: ingredientsByRecipe[recipe.recipe_id] || []
       }));
 
-      // Jetzt haben wir Rezepte mit Zutaten, können Allergie-Filter anwenden
+      // Jetzt haben wir Rezepte mit Zutaten, können Filter anwenden
       let finalRecipes = recipesWithIngredients;
+
+      // 🔥 ZUTATEN FILTER (serverseitig anwenden) - NACH DEM ZUTATEN-LADEN
+      if (ingredientsFilter && ingredientsFilter.trim() !== '' && finalRecipes.length > 0) {
+        const beforeCount = finalRecipes.length;
+        finalRecipes = filterByIngredients(finalRecipes, ingredientsFilter);
+        console.log(`[SEARCH] After ingredients filter: ${beforeCount} -> ${finalRecipes.length}`);
+      }
 
       // 🔥 ALLERGIEN FILTER (serverseitig anwenden) - NACH DEM ZUTATEN-LADEN
       if (allergies && allergies.length > 0 && finalRecipes.length > 0) {
