@@ -21,6 +21,178 @@ app.use(
 
 const embeddingService = new EmbeddingService();
 
+// Allergie-Schlüsselwörter Mapping (ENGLISH - significantly expanded)
+const allergyKeywords: Record<string, string[]> = {
+  "Gluten": [
+    "wheat", "rye", "barley", "oats", "spelt", "bulgur",
+    "semolina", "couscous", "flour", "gluten", "wheat flour",
+    "rye flour", "spelt flour", "wheat bran", "whole wheat flour",
+    "bread", "pasta", "noodle", "breadcrumbs", "cereal", "granola",
+    "malt", "brewers", "beer", "ale", "stout", "wheat beer",
+    "soy sauce", "teriyaki", "worcestershire", "gravy", "roux",
+    "breading", "batter", "cake", "cookie", "biscuit", "cracker",
+    "pastry", "pie crust", "pancake", "waffle", "dough", "doughnut",
+    "muffin", "bagel", "pretzel", "crouton", "stuffing", "dressing",
+    "seitan", "farro", "kamut", "triticale", "matzo", "matzah",
+    "wheat germ", "wheat grass", "wheat starch", "modified food starch",
+    "hydrolyzed wheat protein", "wheat protein", "vital wheat gluten"
+  ],
+  "Laktose": [
+    "milk", "cream", "yogurt", "curd", "cheese", "butter",
+    "lactose", "whey", "cream", "sour cream", "crème fraîche",
+    "buttermilk", "kefir", "mozzarella", "feta", "parmesan",
+    "cottage cheese", "ricotta", "gouda", "cheddar", "brie",
+    "camembert", "provolone", "swiss", "monterey jack", "blue cheese",
+    "goat cheese", "cream cheese", "mascarpone", "quark", "yoghurt",
+    "greek yogurt", "ice cream", "gelato", "whipped cream", "half and half",
+    "evaporated milk", "condensed milk", "powdered milk", "dry milk",
+    "milk powder", "lactose", "milk solid", "milk protein", "casein",
+    "caseinate", "whey protein", "whey powder", "dairy", "dairy product"
+  ],
+  "Nüsse": [
+    "nut", "nuts", "almond", "almonds", "hazelnut", "walnut",
+    "peanut", "cashew", "brazil nut", "pistachio", "macadamia",
+    "marzipan", "nut butter", "peanut butter", "nut oil", "peanut oil",
+    "pecan", "chestnut", "pine nut", "pignoli", "pinenut",
+    "beech nut", "butternut", "hickory nut", "kuiku nut", "lichee nut",
+    "nutella", "praline", "nut meal", "nut paste", "nut extract",
+    "walnut oil", "almond oil", "hazelnut oil", "macadamia oil",
+    "peanut flour", "almond flour", "hazelnut flour", "chestnut flour",
+    "mixed nuts", "trail mix", "granola with nuts", "nut crunch",
+    "nut brittle", "nut cluster", "nut topping", "nut sprinkles"
+  ],
+  "Soja": [
+    "soy", "soya", "tofu", "soy milk", "soy sauce", "soy oil",
+    "soy lecithin", "edamame", "tempeh", "soybean", "soy flour",
+    "soy protein", "miso", "soybean paste", "natto", "soy curd",
+    "soy yogurt", "soy cream", "soy cheese", "soy butter",
+    "soy nut", "soy bacon", "soy chorizo", "soy burger", "soy hot dog",
+    "textured vegetable protein", "tvp", "soy isolate", "soy concentrate",
+    "soy fiber", "soy germ", "soy sprout", "soy milk powder",
+    "soy protein concentrate", "soy protein isolate", "hydrolyzed soy protein",
+    "soy sauce powder", "soy lecithin", "soybean oil", "soy margarine",
+    "teriyaki sauce", "hoisin sauce", "soy-based", "soy-derived"
+  ],
+  "Eier": [
+    "egg", "eggs", "egg white", "egg yolk", "whole egg",
+    "chicken egg", "egg powder", "egg substitute", "egg nog",
+    "mayonnaise", "mayo", "albumin", "albumen", "ovalbumin",
+    "ovomucin", "ovomucoid", "ovotransferrin", "ovoglobulin",
+    "livetin", "vitellin", "egg protein", "dried egg", "frozen egg",
+    "egg solid", "egg wash", "egg glaze", "egg batter", "egg breading",
+    "egg noodle", "egg pasta", "egg roll", "egg wrap", "egg drop soup",
+    "custard", "flan", "creme brulee", "meringue", "souffle",
+    "hollandaise", "béarnaise", "aioli", "tartar sauce", "cream puff",
+    "eclair", "macaron", "marzipan", "nougat", "marshmallow",
+    "quiche", "frittata", "omelet", "scrambled egg", "deviled egg"
+  ],
+  "Fisch": [
+    "fish", "salmon", "tuna", "trout", "cod", "pollock",
+    "herring", "sardine", "mackerel", "flounder", "zander",
+    "fish fillet", "fish broth", "fish sauce", "anchovy", "anchovies",
+    "seafood", "shellfish", "bass", "catfish", "grouper", "haddock",
+    "halibut", "mahi mahi", "orange roughy", "perch", "pike", "snapper",
+    "sole", "swordfish", "tilapia", "whitefish", "whiting", "monkfish",
+    "caviar", "roe", "fish egg", "fish cake", "fish ball", "fish stick",
+    "fish patty", "fish stock", "fish soup", "fish chowder", "fish stew",
+    "fish curry", "fish paste", "fish powder", "fish extract", "fish oil",
+    "omega-3", "fish collagen", "fish gelatin", "isinglass", "worcestershire",
+    "caesar dressing", "thai fish sauce", "nam pla", "nuoc mam",
+    "bagoong", "patis", "fish vinegar", "bonito", "dashi", "katsuobushi"
+  ],
+  "Schalentiere": [
+    "shrimp", "prawn", "crab", "lobster", "crayfish",
+    "scampi", "mussel", "oyster", "clam", "squid",
+    "octopus", "cuttlefish", "shellfish", "crustacean",
+    "seafood", "crawfish", "craw dad", "langoustine", "krill",
+    "barnacle", "conch", "whelk", "periwinkle", "abalone",
+    "escargot", "snail", "limpet", "cockle", "geoduck",
+    "surimi", "imitation crab", "imitation lobster", "seafood stick",
+    "crab stick", "lobster paste", "shrimp paste", "fish paste",
+    "seafood broth", "shellfish stock", "clam juice", "oyster sauce",
+    "shrimp sauce", "crab sauce", "lobster sauce", "seafood seasoning",
+    "old bay", "cajun seasoning", "paella", "cioppino", "bouillabaisse",
+    "seafood gumbo", "clam chowder", "lobster bisque", "shrimp bisque"
+  ],
+  "Sellerie": [
+    "celery", "celery leaf", "celery stalk", "celery root",
+    "celery seed", "celery salt", "celery powder", "celeriac",
+    "celery juice", "celery extract", "celery essential oil",
+    "celery flake", "dried celery", "celery herb", "celery greens",
+    "celery tops", "celery heart", "celery rib", "celery stick",
+    "celery soup", "celery broth", "celery stock", "celery seasoning",
+    "celery spice", "celery flavor", "natural celery flavor",
+    "celery concentrate", "celery derivative", "celery-based"
+  ]
+};
+
+// Verbesserte Funktion zur Allergie-Filterung
+function filterByAllergies(recipes: any[], allergies: string[]): any[] {
+  if (!allergies || allergies.length === 0) {
+    console.log('[ALLERGY] No allergies to filter');
+    return recipes;
+  }
+
+  console.log(`[ALLERGY] Filtering ${recipes.length} recipes for allergies: ${allergies.join(', ')}`);
+
+  const filtered = recipes.filter(recipe => {
+    // Sicherstellen, dass ingredients definiert ist
+    const ingredientsArray = recipe.ingredients || [];
+
+    // Sammle alle Zutaten des Rezepts in einem String (lowercase für case-insensitive Suche)
+    const allIngredients = ingredientsArray
+      .map((ing: any) => {
+        if (typeof ing === 'string') {
+          return ing.toLowerCase();
+        } else if (ing && typeof ing === 'object' && ing.name) {
+          return ing.name.toLowerCase();
+        } else if (ing && typeof ing === 'object' && ing.display) {
+          return ing.display.toLowerCase();
+        }
+        return '';
+      })
+      .join(' ')
+      .toLowerCase();
+
+    let excludedReason = '';
+
+    // Prüfe für jede ausgewählte Allergie
+    const hasAllergen = allergies.some(allergy => {
+      const keywords = allergyKeywords[allergy];
+      if (!keywords) {
+        console.log(`[ALLERGY] Warning: No keywords defined for allergy: ${allergy}`);
+        return false;
+      }
+
+      // Prüfe ob eines der Schlüsselwörter in den Zutaten vorkommt
+      const matchingKeyword = keywords.find(keyword => {
+        // Erstelle ein Regex Pattern für bessere Treffer
+        const pattern = new RegExp(`\\b${keyword.toLowerCase()}\\b`, 'i');
+        return pattern.test(allIngredients);
+      });
+
+      if (matchingKeyword) {
+        excludedReason = `${allergy} (keyword: ${matchingKeyword})`;
+        return true;
+      }
+
+      return false;
+    });
+
+    if (hasAllergen) {
+      console.log(`[ALLERGY] ❌ Excluded: "${recipe.name}" - Reason: ${excludedReason}`);
+      console.log(`[ALLERGY]   Ingredients: ${allIngredients}`);
+      return false;
+    }
+
+    console.log(`[ALLERGY] ✅ Included: "${recipe.name}"`);
+    return true;
+  });
+
+  console.log(`[ALLERGY] Filter result: ${recipes.length} -> ${filtered.length} recipes`);
+  return filtered;
+}
+
 function normalizeError(err: any) {
   return {
     message: err?.message ?? String(err),
@@ -394,46 +566,32 @@ app.post('/', async (c) => {
 
     console.log('[SEARCH] Found recipes after filtering:', recipes?.length);
 
-// 🔥 EINFACHER NAMENS-BASIERTER DUPLIKAT-FILTER
-let filteredRecipes = recipes || [];
+    // 🔥 EINFACHER NAMENS-BASIERTER DUPLIKAT-FILTER
+    let filteredRecipes = recipes || [];
 
-const seenNames = new Set();
-const uniqueRecipes = filteredRecipes.filter(recipe => {
-  if (seenNames.has(recipe.name)) {
-    console.log(`❌ DUPLICATE REMOVED: ${recipe.recipe_id} - ${recipe.name}`);
-    return false;
-  }
-  seenNames.add(recipe.name);
-  return true;
-});
-
-console.log('[SEARCH] After removing name duplicates:', {
-  before: filteredRecipes.length,
-  after: uniqueRecipes.length,
-  removed: filteredRecipes.length - uniqueRecipes.length
-});
-
-// 🔥 SERVER-SEITIGE ERFOLGSMELDUNG
-console.log(`🎯 ${uniqueRecipes.length} eindeutige Rezepte für "${query}" gefunden`);
-
-// Dann mit uniqueRecipes weiterarbeiten...
-filteredRecipes = uniqueRecipes;
-
-    // 🔥 ALLERGIEN FILTER (clientseitig anwenden)
-    if (allergies && allergies.length > 0 && filteredRecipes.length > 0) {
-      filteredRecipes = filteredRecipes.filter(recipe => {
-        // Annahme: Rezepte haben ein allergens Feld als Array
-        const recipeAllergens = recipe.allergens || [];
-        return !allergies.some(allergy =>
-          recipeAllergens.some(recipeAllergen =>
-            recipeAllergen.toLowerCase().includes(allergy.toLowerCase())
-    )
-    );
+    const seenNames = new Set();
+    const uniqueRecipes = filteredRecipes.filter(recipe => {
+      if (seenNames.has(recipe.name)) {
+        console.log(`❌ DUPLICATE REMOVED: ${recipe.recipe_id} - ${recipe.name}`);
+        return false;
+      }
+      seenNames.add(recipe.name);
+      return true;
     });
-    console.log('[SEARCH] After allergy filter:', filteredRecipes.length);
-    }
 
-    // Zutaten aus Datenbank holen
+    console.log('[SEARCH] After removing name duplicates:', {
+      before: filteredRecipes.length,
+      after: uniqueRecipes.length,
+      removed: filteredRecipes.length - uniqueRecipes.length
+    });
+
+    // 🔥 SERVER-SEITIGE ERFOLGSMELDUNG
+    console.log(`🎯 ${uniqueRecipes.length} eindeutige Rezepte für "${query}" gefunden`);
+
+    // Dann mit uniqueRecipes weiterarbeiten...
+    filteredRecipes = uniqueRecipes;
+
+    // Zutaten aus Datenbank holen - MUSS VOR DER ALLERGIE-FILTERUNG PASSIEREN!
     if (filteredRecipes.length > 0) {
       const recipeIds = filteredRecipes.map(r => r.recipe_id);
       console.log('[SEARCH] Recipe IDs to search ingredients for:', recipeIds);
@@ -446,9 +604,19 @@ filteredRecipes = uniqueRecipes;
         ingredients: ingredientsByRecipe[recipe.recipe_id] || []
       }));
 
+      // Jetzt haben wir Rezepte mit Zutaten, können Allergie-Filter anwenden
+      let finalRecipes = recipesWithIngredients;
+
+      // 🔥 ALLERGIEN FILTER (serverseitig anwenden) - NACH DEM ZUTATEN-LADEN
+      if (allergies && allergies.length > 0 && finalRecipes.length > 0) {
+        const beforeCount = finalRecipes.length;
+        finalRecipes = filterByAllergies(finalRecipes, allergies);
+        console.log(`[SEARCH] After allergy filter: ${beforeCount} -> ${finalRecipes.length}`);
+      }
+
       const dt = Date.now() - t0;
       console.log('[SEARCH] Search completed successfully', {
-        count: recipesWithIngredients.length,
+        count: finalRecipes.length,
         ms: dt,
         type
       });
@@ -458,8 +626,8 @@ filteredRecipes = uniqueRecipes;
         type,
         k,
         query: query,
-        recipes: recipesWithIngredients,
-        count: recipesWithIngredients.length,
+        recipes: finalRecipes,
+        count: finalRecipes.length,
         responseTime: dt,
         appliedFilters: filters
       });
