@@ -161,49 +161,59 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
         // Verarbeite Zutaten - unterstütze verschiedene Formate
         let normalizedIngredients = [];
 
-        if (r.ingredients && Array.isArray(r.ingredients)) {
-          // Format: Array von Zutaten-Objekten mit name, amount, unit
-          normalizedIngredients = r.ingredients.map((ing: any) => {
-            if (typeof ing === 'string') {
-              return ing;
-            }
-            if (ing.name) {
-              // Baue lesbaren Zutaten-String
-              let ingredientText = ing.name;
-              if (ing.quantity_text) {
-                ingredientText = `${ing.quantity_text} ${ing.name}`;
-              } else if (ing.amount && ing.unit) {
-                ingredientText = `${ing.amount} ${ing.unit} ${ing.name}`;
-              } else if (ing.amount) {
-                ingredientText = `${ing.amount} ${ing.name}`;
+          if (r.ingredients && Array.isArray(r.ingredients)) {
+            normalizedIngredients = r.ingredients.map((ing: any) => {
+              if (typeof ing === 'string') {
+                return ing;
               }
-              return ingredientText;
-            }
-            return String(ing);
-          }).filter(Boolean);
-        }
+              if (ing.name) {
+                // 🔥 KORRIGIERT: Verhindere doppelte Anzeige des Zutaten-Namens
+                let ingredientText = '';
 
-        return {
-          id: r.recipe_id ?? r.id ?? String(Math.random()),
-          name: r.name ?? 'Ohne Titel',
-          description: r.description ?? '',
-          fullDescription: r.fullDescription ?? (Array.isArray(r.instructions) ? r.instructions.join('\n') : r.instructions),
-          difficulty: r.difficulty ?? 2,
-          workTime: r.work_time ?? r.workTime ?? undefined,
-          totalTime: r.total_time ?? r.totalTime ?? undefined,
-          servings: r.servings ?? undefined,
-          ingredients: normalizedIngredients,
-          instructions: Array.isArray(r.instructions) ? r.instructions : (r.instructions ? [r.instructions] : []),
-          isVegan: r.vegan ?? r.isVegan ?? false,
-          isVegetarian: r.vegetarian ?? r.isVegetarian ?? false,
-          allergens: r.allergens ?? [],
-          imageUrl: r.image_url,
-          calories: r.calories,
-          protein: r.protein,
-          carbohydrates: r.carbohydrates,
-          fat: r.fat
+                if (ing.quantity_text) {
+                  // quantity_text enthält bereits den Namen, also verwenden wir nur das
+                  ingredientText = ing.quantity_text;
+                } else if (ing.amount && ing.unit) {
+                  // amount + unit + name kombinieren
+                  ingredientText = `${ing.amount} ${ing.unit} ${ing.name}`;
+                } else if (ing.amount) {
+                  // amount + name kombinieren
+                  ingredientText = `${ing.amount} ${ing.name}`;
+                } else {
+                  // Nur den Namen verwenden
+                  ingredientText = ing.name;
+                }
+
+                return {
+                  name: ing.name, // Originalname für Filterung
+                  display: ingredientText // Korrigierter Anzeigetext
+                };
+              }
+              return String(ing);
+            }).filter(Boolean);
+          }
+
+          return {
+            id: r.recipe_id ?? r.id ?? String(Math.random()),
+            name: r.name ?? 'Untitled',
+            description: r.description ?? '',
+            fullDescription: r.fullDescription ?? (Array.isArray(r.instructions) ? r.instructions.join('\n') : r.instructions),
+            difficulty: r.difficulty ?? 2,
+            workTime: r.work_time ?? r.workTime ?? undefined,
+            totalTime: r.total_time ?? r.totalTime ?? undefined,
+            servings: r.servings ?? undefined,
+            ingredients: normalizedIngredients,
+            instructions: Array.isArray(r.instructions) ? r.instructions : (r.instructions ? [r.instructions] : []),
+            isVegan: r.vegan ?? r.isVegan ?? false,
+            isVegetarian: r.vegetarian ?? r.isVegetarian ?? false,
+            allergens: r.allergens ?? [],
+            imageUrl: r.image_url,
+            calories: r.calories,
+            protein: r.protein,
+            carbohydrates: r.carbohydrates,
+            fat: r.fat
+          };
         };
-      };
 
       const normalized = items.map(normalize);
 
