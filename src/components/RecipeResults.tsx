@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Clock, ChefHat, Heart, Star, ArrowLeft, Users, AlertCircle, MessageCircle, ChevronDown, ChevronUp, Utensils } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
@@ -43,6 +43,12 @@ interface RecipeResultsProps {
 
 export function RecipeResults({ chatHistory, onAddToFavorites, onBack }: RecipeResultsProps) {
   const [expandedRecipeId, setExpandedRecipeId] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // 🔥 AUTO-SCROLL ZUR NEUESTEN NACHRICHT (UNTEN)
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatHistory]);
 
   if (!chatHistory || chatHistory.length === 0) {
     return null;
@@ -80,7 +86,7 @@ export function RecipeResults({ chatHistory, onAddToFavorites, onBack }: RecipeR
         </div>
       </div>
 
-      {/* Chat Messages */}
+      {/* Chat Messages - URSPRÜNGLICHE REIHENFOLGE: NEUE NACHRICHTEN UNTEN */}
       <div className="w-full max-w-5xl mx-auto px-6">
         <div className="space-y-4 pb-6">
           {chatHistory.map((message, index) => (
@@ -194,7 +200,7 @@ export function RecipeResults({ chatHistory, onAddToFavorites, onBack }: RecipeR
                                       )}
                                     </div>
 
-                                    {/* 🔥 NUTRITION - Compact display */}
+                                    {/* 🔥 NÄHRWERTE - Kompakt angezeigt */}
                                     {(recipe.calories || recipe.protein) && (
                                       <div className="pt-2 border-t border-primary/10">
                                         <h4 className="font-semibold text-xs mb-1">Nutrition (per serving):</h4>
@@ -338,6 +344,9 @@ export function RecipeResults({ chatHistory, onAddToFavorites, onBack }: RecipeR
               ) : null}
             </div>
           ))}
+
+          {/* 🔥 AUTO-SCROLL ANCHOR - FÜR NEUESTE NACHRICHT (UNTEN) */}
+          <div ref={messagesEndRef} />
         </div>
       </div>
     </div>

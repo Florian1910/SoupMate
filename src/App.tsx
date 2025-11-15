@@ -341,9 +341,9 @@ export default function App() {
       after: finalUniqueRecipes.length
     });
 
-    // Füge die neue Suche zum Chat-Verlauf hinzu
+    // 🔥 KORREKTUR: Neue Nachrichten werden am ENDE des Arrays hinzugefügt (unten)
     setChatHistory(prev => [
-      ...prev,
+      ...prev, // Alte Nachrichten bleiben oben
       {
         type: 'user',
         query: results.query,
