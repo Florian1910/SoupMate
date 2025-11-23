@@ -1,78 +1,81 @@
-
 # 🥣 **SoupMate** – Backend & Semantische Rezeptsuche
 
-**SoupMate** ist eine webbasierte Anwendung zur **semantischen Suche von Rezepten**, basierend auf Zutaten, Text und Nährwerten.  
+**SoupMate** ist eine webbasierte Anwendung zur **semantischen Suche von Rezepten**, basierend auf Zutaten, Text und Nährwerten.
 Das Projekt kombiniert **Supabase**, **FAISS** und **Deno (Hono)**, um Rezepte zu importieren, zu vektorisieren und effizient abzufragen.
 
 ---
 
-## 💻 **Frontend starten**
+## 🧠 **Technologien**
 
-1. **Wechsle in das Projekt-Root-Verzeichnis**
-   ```bash
-   cd C:\Users\flori\OneDrive\Desktop\SoupMate
-   ```
-
-2. **Installiere die Abhängigkeiten**
-   ```bash
-   npm install
-   ```
-
-3. **Starte den Entwicklungsserver**
-   ```bash
-   npm run dev
-   ```
-
-   Das Frontend ist jetzt unter [**http://localhost:3000**](http://localhost:3000) erreichbar.
+| Bereich | Technologie |
+| :--- | :--- |
+| **Backend (API)** | Deno + Hono Framework |
+| **Datenbank** | Supabase (PostgreSQL + pgvector) |
+| **Suche / KI** | Python + FAISS + SentenceTransformers |
+| **Frontend** | React + TypeScript |
 
 ---
 
-## 🚀 **Backend starten**
+## 🔧 **Voraussetzungen**
 
-1. **Wechsle in das Server-Verzeichnis**
-   ```bash
-   cd src\supabase\functions\server
-   ```
+Stelle vor dem Start sicher, dass die folgenden Laufzeitumgebungen installiert sind:
 
-2. **Starte den Deno-Server**
-   ```bash
-   deno run --import-map=config/import_map.json --allow-all --env-file=.env server.tsx
-   ```
-
-   Das Backend ist nun unter [**http://localhost:8000**](http://localhost:8000) erreichbar.
+* **Deno** (für das Backend): [Installation](https://deno.land/)
+* **Node.js & npm** (für das Frontend): [Installation](https://nodejs.org/)
+* **Python** (für FAISS-Skripte): [Installation](https://www.python.org/)
 
 ---
 
-## ⚙️ **Python Script Commands**
+## 🛠️ **Ersteinrichtung (Initial Setup)**
 
-Führe die folgenden Python-Kommandos im `server`-Verzeichnis aus, um Rezepte zu importieren und die semantische Suche durchzuführen:
+Diese Schritte sind **einmalig** nach dem Klonen des Repositories oder wenn sich die Abhängigkeiten (`package.json`) geändert haben, notwendig.
 
-### In das Server-Verzeichnis wechseln
-   ```bash 
-   cd src\supabase\functions\server
-   ```
+### 1. **Abhängigkeiten installieren**
+Wechsle in das **Projekt-Root-Verzeichnis** und installiere die Frontend-Pakete sowie **`concurrently`** zur gleichzeitigen Ausführung der Server:
 
-### Rezepte von Spoonacular importieren
-   ```bash
-   python scripts\main.py ingest --number=10
-   ```
+```bash
+# Im Projekt-Root-Verzeichnis
+npm install
+npm install concurrently --save-dev
+```
 
-### Semantische Suche
-   ```bash
-   python scripts\main.py search-text --q="tomato soup" --k=5 --format
-   ```
 
-### Zutaten-basierte Suche
-   ```bash
-   python scripts\main.py search-ingredients --ing "tomato" "onion" --k=5 --format
-   ```
+## 🚀 Anwendung starten (Runtime) ##
 
----
+```bash
+# Im Projekt-Root-Verzeichnis
+npm run start-all
+```
+
+Server	Erreichbar unter
+Frontend (Vite)	http://localhost:3000
+Backend (Deno)	http://localhost:8000
+
+## 🚀⚙️ Python Skripte (Datenbank & Suche) ##
+```bash
+cd src\supabase\functions\server
+```
+```bash
+# Importiert Rezepte von Spoonacular und generiert Vektoren:
+python scripts\main.py ingest --number=10
+```
+
+```bash
+# Sucht nach Rezepten, die dem Suchbegriff semantisch ähneln:
+python scripts\main.py search-text --q="tomato soup" --k=5 --format
+```
+
+```bash
+# Sucht nach Rezepten, die die angegebenen Zutaten enthalten:
+python scripts\main.py search-ingredients --ing "tomato" "onion" --k=5 --format
+```
 
 ## 📂 **Projektstruktur**
 
+
+
 ```bash
-C:\Users\flori\OneDrive\Desktop\SoupMate\src\supabase\functions\server\
+C:\\SoupMate\src\supabase\functions\server\
 ├── 📁 config/
 │   ├── import_map.json
 │   └── environment.ts
@@ -101,47 +104,3 @@ C:\Users\flori\OneDrive\Desktop\SoupMate\src\supabase\functions\server\
 ├── server.tsx
 └── .env
 ```
-
----
-
-## 🧠 **Technologien**
-
-| Bereich         | Technologie                  |
-|-----------------|------------------------------|
-| **Backend (API)** | Deno + Hono Framework       |
-| **Datenbank**   | Supabase (PostgreSQL + pgvector) |
-| **Suche / KI**  | Python + FAISS + SentenceTransformers |
-| **Frontend**    | React + TypeScript            |
-
----
-
-## 🔧 **Voraussetzungen**
-
-- **Deno** (für das Backend): [Installation](https://deno.land/)
-- **Node.js & npm** (für das Frontend): [Installation](https://nodejs.org/)
-- **Python** (für FAISS-Skripte): [Installation](https://www.python.org/)
-
-## 🔧 **Probleme & Lösungen**
-
-Während der Einrichtung und Ausführung des Projekts traten mehrere typische Fehler auf, die hier dokumentiert und gelöst wurden, um zukünftige Setups zu vereinfachen.
-
----
-
-## 🖥️ **Frontend-Probleme**
-
-### Vite-Fehler durch OneDrive
-**Problem:** Der Projektordner befand sich im OneDrive-Verzeichnis, wodurch einige Build-Dateien blockiert wurden.
-
-**Lösung:**
-1. Projekt außerhalb von Outlook nach zb: `C:\Dev\SoupMate` verschieben
-2. `node_modules` und `package-lock.json` löschen
-3. npm-Cache bereinigen:
-   ```bash
-   npm cache clean --force
-4. Vite neu installieren
-   ```bash
-   npm install -D vite@5.4.10
-   npm install
-   npm run dev
-
-
