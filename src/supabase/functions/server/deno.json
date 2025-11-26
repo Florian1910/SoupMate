@@ -1,0 +1,16 @@
+{
+  "imports": {
+    "@hono/hono": "jsr:@hono/hono",
+    "@hono/cors": "jsr:@hono/hono/cors",
+    "@google/generative-ai": "npm:@google/generative-ai"
+  },
+  "tasks": {
+    "dev": "deno run --allow-all --env-file=.env --watch server.tsx",
+    "start": "deno run --allow-all --env-file=.env server.tsx"
+  },
+  "compilerOptions": {
+    "lib": ["deno.ns"],
+    "strict": true
+  }
+}
+
