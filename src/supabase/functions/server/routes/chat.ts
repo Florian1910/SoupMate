@@ -16,7 +16,7 @@ app.use("*", cors({
 
 const gemini = new GeminiService();
 
-app.post("/chat", async (c) => {
+app.post("/", async (c) => {
     try {
         // 1) Content-Type prüfen
         const ct = c.req.header("content-type") || "";
