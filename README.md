@@ -81,9 +81,10 @@ C:\Users\flori\OneDrive\Desktop\SoupMate\src\supabase\functions\server\
 │   ├── spoonacular.ts           # TypeScript Spoonacular Service
 │   └── embedding.ts             # TypeScript Embedding Service
 ├── 📁 routes/
-│   ├── recipes.ts
-│   ├── search.ts
-│   └── health.ts
+│   ├── favorites.ts             # Endpunkte für Favoriten (Favoriten holen/anlegen/löschen)
+│   ├── health.ts                # Health-Check-Endpoint (Status der Function prüfen)
+│   ├── recipes.ts               # Endpunkte rund um Rezepte (Listen, Details, Filtern)
+│   └── search.ts                # Endpunkte für die Rezept-Suche (inkl. Embedding-Suche)
 ├── 📁 types/
 │   └── recipe.ts
 ├── 📁 scripts/                  # Python ML Komponenten
