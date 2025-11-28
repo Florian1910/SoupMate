@@ -72,35 +72,33 @@ Führe die folgenden Python-Kommandos im `server`-Verzeichnis aus, um Rezepte zu
 ## 📂 **Projektstruktur**
 
 ```bash
-C:\Users\flori\OneDrive\Desktop\SoupMate\src\supabase\functions\server\
-├── 📁 config/
-│   ├── import_map.json
-│   └── environment.ts
-├── 📁 services/
+SoupMate\src\supabase\functions\server\
+├── 📁 config
+│   ├── import_map.json          # Import-Mappings für Deno
+│   └── environment.ts           # Umgebungsvariablen
+├── 📁 routes
+│   ├── favorites.ts             
+│   ├── health.ts                # Health-Check
+│   ├── recipes.ts               # Endpunkte rund um Rezepte
+│   └── search.ts                # Endpunkte für die Suche
+├── 📁 services/                 # (TypeScript Services für Edge Functions)
 │   ├── database.ts              # TypeScript DB Service
-│   ├── spoonacular.ts           # TypeScript Spoonacular Service
-│   └── embedding.ts             # TypeScript Embedding Service
-├── 📁 routes/
-│   ├── favorites.ts             # Endpunkte für Favoriten (Favoriten holen/anlegen/löschen)
-│   ├── health.ts                # Health-Check-Endpoint (Status der Function prüfen)
-│   ├── recipes.ts               # Endpunkte rund um Rezepte (Listen, Details, Filtern)
-│   └── search.ts                # Endpunkte für die Rezept-Suche (inkl. Embedding-Suche)
-├── 📁 types/
-│   └── recipe.ts
-├── 📁 scripts/                  # Python ML Komponenten
+│   ├── embedding.ts             # TypeScript Embedding Service
+│   └── spoonacular.ts           # TypeScript Spoonacular Service
+├── 📁 scripts/                  # (Python Backend & Data Pipeline)
 │   ├── 📁 models/
-│   │   ├── recipe.py            # Recipe Datenklassen
-│   │   └── embedding.py         # Embedding Logik
+│   │   ├── embedding.py         # KI-Modell Wrapper & Text-Cleaning
+│   │   ├── init.py              # Package Init
+│   │   └── recipe.py            # Datenklassen (Recipe, Nutrition, Ingredient)
 │   ├── 📁 services/
-│   │   ├── database.py          # Python DB Service
-│   │   ├── spoonacular.py       # Python Spoonacular Service
-│   │   └── embedding_service.py # Python Embedding Service
-│   ├── 📁 utils/
-│   │   └── helpers.py           # Hilfsfunktionen
-│   ├── main.py                  # Hauptscript (CLI)
-│   └── config.py                # Python Konfiguration
-├── server.tsx
-└── .env
+│   │   ├── database.py          # Python DB Service (Postgres & pgvector)
+│   │   ├── init.py              # Package Init
+│   │   ├── search_service.py    # Such-Logik (Intent-Erkennung & Ranking)
+│   │   └── spoonacular.py       # Python Spoonacular Client (Ingestion)
+│   ├── 📁 utils
+│   └── main.py                  # CLI Entry-Point (Steuert Ingest & Suche)
+├── .env                         # Lokale Umgebungsvariablen
+└── server.tsx                   # Haupt-Server-Datei (Deno/Supabase)
 ```
 
 ---
