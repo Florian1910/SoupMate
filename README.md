@@ -77,7 +77,7 @@ SoupMate\src\supabase\functions\server\
 │   ├── import_map.json          # Import-Mappings für Deno
 │   └── environment.ts           # Umgebungsvariablen
 ├── 📁 routes
-│   ├── favorites.ts             
+│   ├── favorites.ts             # Endpunkte für Favoriten (Favoriten holen/anlegen/löschen)
 │   ├── health.ts                # Health-Check
 │   ├── recipes.ts               # Endpunkte rund um Rezepte
 │   └── search.ts                # Endpunkte für die Suche
