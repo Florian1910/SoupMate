@@ -1,3 +1,5 @@
+# Definiert die Datenstrukturen für Rezepte, Nährwerte und Zutaten sowie deren Initialisierung
+
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import uuid

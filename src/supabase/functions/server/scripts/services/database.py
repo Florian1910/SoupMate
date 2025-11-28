@@ -1,3 +1,5 @@
+# Verwaltet Datenbankverbindungen und speichert Rezepte, Zutaten sowie Nährwerte in Supabase/PostgreSQL
+
 import uuid
 import logging
 import psycopg2
@@ -14,6 +16,7 @@ class DatabaseService:
     def get_connection(self):
         return psycopg2.connect(self.connection_string)
 
+    # Prüft, ob eine Zutat existiert; falls nicht, wird sie neu angelegt (inkl. Vektor-Embedding) und die ID zurückgegeben
     def upsert_ingredient(self, cur, name: str) -> uuid.UUID:
         cur.execute(
             sql.SQL("SELECT ingredient_id FROM {} WHERE name = %s").format(sql.Identifier(TABLE_ING)),
@@ -33,6 +36,7 @@ class DatabaseService:
         )
         return cur.fetchone()[0]
 
+    # Verknüpft Zutaten mit einem Rezept
     def link_ingredients_to_recipe(self, cur, recipe_id: uuid.UUID, ingredients: List[Ingredient]):
         for ingredient in ingredients:
             if not ingredient.name.strip():
@@ -53,6 +57,7 @@ class DatabaseService:
                 (str(recipe_id), str(ingredient_id), ingredient.quantity_text, ingredient.amount, ingredient.unit)
             )
 
+    # Speichert Nährwerte in DB
     def insert_recipe_nutrition(self, cur, recipe_id: uuid.UUID, nutrition):
         cur.execute(
             sql.SQL(f"""
@@ -73,6 +78,7 @@ class DatabaseService:
             )
         )
 
+    # Fügt das Hauptrezept inkl. Metadaten und Embeddings in die Datenbank ein
     def insert_recipe(self, cur, recipe: Recipe) -> uuid.UUID:
         recipe_id = uuid.uuid4() if not recipe.recipe_id else recipe.recipe_id
 
@@ -109,10 +115,13 @@ class DatabaseService:
         )
 
         inserted_id = cur.fetchone()[0]
+
+        # Triggert den Nährwert-Insert
         self.insert_recipe_nutrition(cur, inserted_id, recipe.nutrition)
 
         return inserted_id
 
+    # Speichert  Rezept inkl. aller Verknüpfungen
     def save_recipe(self, recipe: Recipe) -> uuid.UUID:
         with self.get_connection() as conn:
             with conn.cursor() as cur:
