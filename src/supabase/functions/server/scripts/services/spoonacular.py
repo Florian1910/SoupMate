@@ -5,10 +5,12 @@ from config import SPOONACULAR_API_KEY
 from models.recipe import Recipe, Nutrition, Price, Ingredient
 from models.embedding import embedding_model
 
+# Interagiert mit der Spoonacular API, um Rezepte zu laden, und wandelt die Rohdaten in unser internes Datenmodell um
 class SpoonacularService:
     def __init__(self):
         self.api_key = SPOONACULAR_API_KEY
 
+    # Ruft Suppen-Rezepte von der API ab explizit nur Suppen
     def fetch_recipes(self, query: str = "", number: int = 20) -> List[Dict[str, Any]]:
         url = (
             "https://api.spoonacular.com/recipes/complexSearch"
@@ -35,6 +37,7 @@ class SpoonacularService:
         logging.info(f"API Antwort: {len(recipes)} Rezepte mit dishType=soup")
         return recipes
 
+    # Berechnet einen eigenen Schwierigkeitsgrad (1-5) basierend auf Zeitaufwand, Zutatenanzahl und Schritten
     def calculate_difficulty(self, recipe_data: Dict[str, Any]) -> int:
         total_time = recipe_data.get("readyInMinutes", 0)
         ingredient_count = len(recipe_data.get("extendedIngredients", []))
@@ -56,6 +59,7 @@ class SpoonacularService:
         logging.info(f"Schwierigkeit: {difficulty}/5 (Zeit: {total_time}min, Zutaten: {ingredient_count}, Schritte: {step_count})")
         return difficulty
 
+    # Extrahiert relevante Nährwerte und mappt sie auf das Nutrition-Objekt
     def extract_nutrition(self, recipe_data: Dict[str, Any]) -> Nutrition:
         nutrition_data = recipe_data.get("nutrition", {})
         nutrients = nutrition_data.get("nutrients", [])
@@ -90,6 +94,7 @@ class SpoonacularService:
         logging.info(f"Extrahiert Nährwerte: {nutrition.calories} kcal, {nutrition.protein}g Protein")
         return nutrition
 
+    # Wandelt den Preis pro Portion von US-Cent (API-Format) in Euro um
     def extract_price_info(self, recipe_data: Dict[str, Any]) -> Price:
         price_per_serving = recipe_data.get("pricePerServing", 0)
 
@@ -104,6 +109,7 @@ class SpoonacularService:
         logging.info(f"Extrahiert Preis: {price.price_per_serving}€ pro Portion")
         return price
 
+    # Normalisiert rohe JSON-Daten zu einem Recipe-Objekt inkl. Embeddings (Text & Zutaten)
     def normalize_recipe(self, recipe_data: Dict[str, Any]) -> Recipe:
         title = recipe_data.get("title") or ""
         description = embedding_model.html_to_text(recipe_data.get("summary") or "")

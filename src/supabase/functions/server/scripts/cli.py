@@ -1,3 +1,5 @@
+# Command Line Interface-Tool für Daten-Ingestion (Spoonacular -> Supabase), Embedding-Generierung und Testen der semantischen Suche im Terminal.
+
 import os
 import re
 import json

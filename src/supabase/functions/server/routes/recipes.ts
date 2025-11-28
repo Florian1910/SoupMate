@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { SpoonacularService } from '../services/spoonacular.ts';
 import { EmbeddingService } from '../services/embedding.ts';
-import { supabase } from '../services/database.ts'; // Jetzt sollte der Import funktionieren
+import { supabase } from '../services/database.ts';
 import { config } from '../config/environment.ts';
 
 const app = new Hono();

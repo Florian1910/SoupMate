@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+
+#!/usr/bin/env python3
+# Der zentrale Einstiegspunkt (Entry Point) für das CLI-Tool.
+
 import argparse
 import logging
 import sys
@@ -7,7 +11,7 @@ from typing import List
 from utils.helpers import setup_logging, print_json, format_recipe_details, format_search_results
 from services.spoonacular import SpoonacularService
 from services.database import DatabaseService
-from services.embedding_service import EmbeddingService
+from services.search_service import EmbeddingService
 
 def ingest_recipes(query: str = "", number: int = 20):
     """Importiert Rezepte von Spoonacular und speichert sie in der Datenbank"""
