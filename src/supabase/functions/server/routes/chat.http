@@ -1,0 +1,7 @@
+### Test Gemini Chat Endpoint
+POST http://localhost:8000/chat
+Content-Type: application/json
+
+{
+  "prompt": "Give me a vegetarian tomato soup idea."
+}

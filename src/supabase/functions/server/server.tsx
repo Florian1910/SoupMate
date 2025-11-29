@@ -10,6 +10,7 @@ import recipeRoutes from './routes/recipes.ts';
 import searchRoutes from './routes/search.ts';
 // In server.ts - Nach den anderen imports
 import favoritesRoutes from './routes/favorites.ts';
+import chat from "./routes/chat.ts";
 
 const app = new Hono();
 
@@ -28,6 +29,7 @@ app.route('/health', healthRoutes);
 app.route('/recipes', recipeRoutes);
 app.route('/search', searchRoutes);
 app.route('/favorites', favoritesRoutes);
+app.route("/chat", chat);
 
 // Root route
 app.get('/', (c) => c.json({
