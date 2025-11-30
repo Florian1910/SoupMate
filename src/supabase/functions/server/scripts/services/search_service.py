@@ -1,5 +1,3 @@
-# Such-Engine
-
 import logging
 import re
 from typing import List, Dict, Any, Tuple, Set
@@ -13,18 +11,17 @@ class EmbeddingService:
     def __init__(self):
         self.db = DatabaseService()
 
-    # -------------------------------
-    # 1) INTENT ERKENNEN (generisch)
-    # -------------------------------
+    # 1) INTENT ERKENNEN (generisch). Wichtig für die Freitextsuche
+
     def _parse_intent(self, q: str) -> Dict[str, Any]:
-        ql = q.lower()
+        ql = q.lower() #kleinschreibung
 
         # einfache Negations-Erkennung (no X / ohne X)
         neg_patterns = [
             r"\bno\s+([a-z][a-z\s\-]+)",       # "no nuts", "no pork"
             r"\bohne\s+([a-z][a-z\s\-]+)",     # "ohne gluten"
         ]
-        excludes: Set[str] = set()
+        excludes: Set[str] = set() #wirft alles nach dem no/ohne in excludes rein
         for pat in neg_patterns:
             for m in re.finditer(pat, ql):
                 excludes.add(m.group(1).strip())
@@ -50,7 +47,7 @@ class EmbeddingService:
             "lactose_free": "lactose free" in ql or "laktosefrei" in ql,
         }
 
-        # Include-/Exclude-Listen aus Query ableiten (generisch)
+        # geht query mit den wörtern in protein durch
         includes: Set[str] = set()
         for _, words in protein_map.items():
             for w in words:
@@ -69,9 +66,7 @@ class EmbeddingService:
             "wants": wants
         }
 
-    # ---------------------------------------
-    # 2) BAUE SQL-Filter dynamisch & sicher
-    # ---------------------------------------
+    # BAUt SQL-Filter
     def _build_filter_sql(self, intent: Dict[str, Any]) -> Tuple[str, list]:
         where_parts = []
         params = []
@@ -87,14 +82,7 @@ class EmbeddingService:
             # „nicht-vegetarisch“ ist oft näher an „mit Fleisch/Fisch“
             where_parts.append("r.vegetarian = FALSE")
 
-        # gluten-/laktosefrei – falls du solche Flags hast, hier ebenfalls filtern.
-        # Beispiel (auskommentiert, wenn Felder fehlen):
-        # if w["gluten_free"]:
-        #     where_parts.append("COALESCE(r.gluten_free, FALSE) = TRUE")
-        # if w["lactose_free"]:
-        #     where_parts.append("COALESCE(r.lactose_free, FALSE) = TRUE")
-
-        # Include-Zutaten (EXISTS)
+        # Includes eine Übereinstimmung reicht, wegen kleiner Datenbank
         inc = intent["includes"]
         exc = intent["excludes"]
         if inc:
@@ -104,12 +92,12 @@ class EmbeddingService:
                     FROM {TABLE_LINK} ri
                     JOIN {TABLE_ING} i ON i.ingredient_id = ri.ingredient_id
                     WHERE ri.recipe_id = r.recipe_id
-                      AND i.name ILIKE ANY (ARRAY[%s])
+                      AND i.name ILIKE ANY (ARRAY[%s]) 
                 )
-            """)
+            """) #ILIKE ANY ist Ähnlichkeit zu einem der gesuchten Begriffe
             params.append(tuple(f"%{w}%" for w in inc))
 
-        # EXCLUDES
+        # Excludes wird das Gericht sofort entfernt, auch wie oben, eine Übereinstimmung
         if exc:
             where_parts.append(f"""
                 NOT EXISTS (
@@ -128,11 +116,10 @@ class EmbeddingService:
 
         return where_sql, params
 
-    # ---------------------------------------------------------
     # 3) SUCHE: kombiniertes Ranking + optionale Filter nutzen
-    # ---------------------------------------------------------
+
     def search_by_text(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        query_vector = embedding_model.vector_to_literal(embedding_model.embed(query))
+        query_vector = embedding_model.vector_to_literal(embedding_model.embed(query)) #macht Vektorzahl und formartiert diese um für Postgres
         intent = self._parse_intent(query)
         where_sql, where_params = self._build_filter_sql(intent)
 
@@ -173,10 +160,6 @@ class EmbeddingService:
             LIMIT %s
         """
 
-        # die WHERE-Parameter (Arrays) einfügen – Reihenfolge wahren
-        # (psycopg kümmert sich um ARRAY-Mapping bei ILIKE ANY)
-        # params-Struktur: [qvec, wants_meat, wants_vegan, wants_veg, has_inc, include_terms[], limit]
-        # + where_params (kann include/exclude Arrays enthalten)
         params_header = [
             query_vector,                              # %s -> q.qv
             intent["wants"]["meat"],                   # %s
@@ -214,7 +197,7 @@ class EmbeddingService:
 
                     ingredients = self._get_recipe_ingredients(cur, recipe_id)
 
-                    results.append({
+                    results.append({ # Antwortobjekt
                         "recipe_id": recipe_id,
                         "name": name,
                         "description": row[2],
@@ -254,7 +237,7 @@ class EmbeddingService:
         if not ingredients:
             return []
 
-        # -------- Gewichtung der Zutaten (erste Zutat wichtiger) --------
+        # Gewichtung der Zutaten (erste Zutat wichtiger als die danach)
         PRIMARY_WEIGHT = 2.0   # ggf. 3.0, wenn noch stärker
         DECAY = 1.0            # 1.0 = keine Abwertung; z.B. 0.9 für leichten Abfall
 
@@ -262,12 +245,12 @@ class EmbeddingService:
         single_vecs: List[List[float]] = []
         weights: List[float] = []
         for idx, ing in enumerate(ingredients):
-            v = embedding_model.embed(ing)  # -> List[float]
+            v = embedding_model.embed(ing)  # -> vektor umwandlung
             single_vecs.append(v)
             w = (PRIMARY_WEIGHT if idx == 0 else (DECAY ** idx))
             weights.append(w)
 
-        # Gewichtetes Mittel (komponentenweise)
+        # Gewichtung für anzeige
         dim = len(single_vecs[0])
         weighted = [0.0] * dim
         weight_sum = 0.0
