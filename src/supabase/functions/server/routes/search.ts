@@ -133,7 +133,7 @@ function filterByIngredients(recipes: any[], ingredientsFilter: string): any[] {
     return recipes;
   }
 
-  // 🔥 BINDEWÖRTER DURCH KOMMAS ERSETZEN
+  // BINDEWÖRTER DURCH KOMMAS ERSETZEN
   const normalizedInput = ingredientsFilter
     .toLowerCase()
     // Ersetze verschiedene Bindewörter durch Kommas
@@ -221,7 +221,7 @@ function filterByAllergies(recipes: any[], allergies: string[]): any[] {
 
     let excludedReason = '';
 
-    // Prüfe für jede ausgewählte Allergie
+    // Überprüft auf jede Allergie ob positiv oder negativ ist für dieses Gericht
     const hasAllergen = allergies.some(allergy => {
       const keywords = allergyKeywords[allergy];
       if (!keywords) {
@@ -258,7 +258,7 @@ function filterByAllergies(recipes: any[], allergies: string[]): any[] {
   return filtered;
 }
 
-function normalizeError(err: any) {
+function normalizeError(err: any) {//erstellt Fehlermeldung
   return {
     message: err?.message ?? String(err),
     code: err?.code,
@@ -283,7 +283,7 @@ function fail(c: any, err: any, httpStatus = 500, label = 'Error') {
   );
 }
 
-// 🔥 KORREKTE ZUTATEN-FUNKTION - EXPLIZIT FÜR DEINE DATENBANK
+
 async function getIngredientsForRecipes(recipeIds: string[]) {
   try {
     console.log('🔍 STEP 1: Searching for recipe IDs in test_recipe_ingredients:', recipeIds);
@@ -293,7 +293,7 @@ async function getIngredientsForRecipes(recipeIds: string[]) {
       return {};
     }
 
-    // 🔥 SCHRITT 1: Suche in test_recipe_ingredients nach den recipe_ids
+    // SCHRITT 1: Holt alle Zutaten, die die jeweilige RecipeID aufweisen können
     const { data: recipeIngredients, error: recipeIngredientsError } = await supabase
       .from('test_recipe_ingredients')
       .select('recipe_id, ingredient_id, amount, unit, quantity_text')
@@ -314,7 +314,7 @@ async function getIngredientsForRecipes(recipeIds: string[]) {
       return {};
     }
 
-    // 🔥 SCHRITT 2: Extrahiere alle ingredient_ids
+    // SCHRITT 2: Extrahiere alle ingredient_ids und entferne doppelte Einträge
     const ingredientIds = recipeIngredients.map(item => item.ingredient_id).filter(Boolean);
     const uniqueIngredientIds = [...new Set(ingredientIds)];
 
@@ -325,7 +325,7 @@ async function getIngredientsForRecipes(recipeIds: string[]) {
       return {};
     }
 
-    // 🔥 SCHRITT 3: Suche in test_ingredients nach den ingredient_ids und hole die Namen
+    // SCHRITT 3: Suche in test_ingredients nach den ingredient_ids und hole die Namen
     const { data: ingredients, error: ingredientsError } = await supabase
       .from('test_ingredients')
       .select('ingredient_id, name')
@@ -346,7 +346,7 @@ async function getIngredientsForRecipes(recipeIds: string[]) {
       return {};
     }
 
-    // 🔥 SCHRITT 4: Erstelle Mapping von ingredient_id zu name
+    // SCHRITT 4: Erstelle Mapping von ingredient_id zu name
     const ingredientNameMap: Record<string, string> = {};
     ingredients.forEach(ingredient => {
       ingredientNameMap[ingredient.ingredient_id] = ingredient.name;
@@ -354,7 +354,7 @@ async function getIngredientsForRecipes(recipeIds: string[]) {
 
     console.log('📋 Ingredient ID to Name mapping:', ingredientNameMap);
 
-    // 🔥 SCHRITT 5: Kombiniere die Daten - Gruppiere nach recipe_id
+    // SCHRITT 5: Kombiniere die Daten - Gruppiere nach recipe_id für vollständige Zutatenliste
     const ingredientsByRecipe: Record<string, any[]> = {};
 
     recipeIngredients.forEach(recipeIngredient => {
@@ -448,7 +448,7 @@ app.post('/debug-search', async (c) => {
 // Routes
 app.get('/health', (c) => ok(c, { ok: true, service: 'search', ts: new Date().toISOString() }));
 
-// 🔥 DEBUG ROUTE - Prüfe konkrete Daten
+// DEBUG ROUTE - Prüfe konkrete Daten
 app.get('/debug-db', async (c) => {
   try {
     console.log('🔍 DEBUG: Checking actual data in tables...');
@@ -552,7 +552,6 @@ app.post('/', async (c) => {
 
     const { query, type = 'text', k = 5, filters = {} } = body ?? {};
 
-    // 🔥 KORREKT: Filter aus dem filters-Objekt extrahieren mit Default-Werten
     const {
       dietType = 'alle',
       difficulty = 0,
@@ -571,7 +570,7 @@ app.post('/', async (c) => {
       ingredientsFilter
     });
 
-    // 🔥 DATENBANKABFRAGE MIT FILTERN AUFBAUEN
+    // DATENBANKABFRAGE MIT FILTERN AUFBAUEN
     let dbQuery = supabase
       .from('test_recipes')
       .select('*');
@@ -631,7 +630,7 @@ app.post('/', async (c) => {
 
     console.log('[SEARCH] Found recipes after filtering:', recipes?.length);
 
-    // 🔥 EINFACHER NAMENS-BASIERTER DUPLIKAT-FILTER
+    // EINFACHER NAMENS-BASIERTER DUPLIKAT-FILTER
     let filteredRecipes = recipes || [];
 
     const seenNames = new Set();
@@ -650,7 +649,7 @@ app.post('/', async (c) => {
       removed: filteredRecipes.length - uniqueRecipes.length
     });
 
-    // 🔥 SERVER-SEITIGE ERFOLGSMELDUNG
+    // SERVER-SEITIGE ERFOLGSMELDUNG
     console.log(`🎯 ${uniqueRecipes.length} eindeutige Rezepte für "${query}" gefunden`);
 
     // Dann mit uniqueRecipes weiterarbeiten...
@@ -672,14 +671,14 @@ app.post('/', async (c) => {
       // Jetzt haben wir Rezepte mit Zutaten, können Filter anwenden
       let finalRecipes = recipesWithIngredients;
 
-      // 🔥 ZUTATEN FILTER (serverseitig anwenden) - NACH DEM ZUTATEN-LADEN
+      // ZUTATEN FILTER (serverseitig anwenden) - NACH DEM ZUTATEN-LADEN
       if (ingredientsFilter && ingredientsFilter.trim() !== '' && finalRecipes.length > 0) {
         const beforeCount = finalRecipes.length;
         finalRecipes = filterByIngredients(finalRecipes, ingredientsFilter);
         console.log(`[SEARCH] After ingredients filter: ${beforeCount} -> ${finalRecipes.length}`);
       }
 
-      // 🔥 ALLERGIEN FILTER (serverseitig anwenden) - NACH DEM ZUTATEN-LADEN
+      // ALLERGIEN FILTER (serverseitig anwenden) - NACH DEM ZUTATEN-LADEN
       if (allergies && allergies.length > 0 && finalRecipes.length > 0) {
         const beforeCount = finalRecipes.length;
         finalRecipes = filterByAllergies(finalRecipes, allergies);
