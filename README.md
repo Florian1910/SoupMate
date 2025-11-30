@@ -109,7 +109,7 @@ SoupMate\src\supabase\functions\server\
 |-----------------|------------------------------|
 | **Backend (API)** | Deno + Hono Framework       |
 | **Datenbank**   | Supabase (PostgreSQL + pgvector) |
-| **Suche / KI**  | Python + FAISS + SentenceTransformers |
+| **Suche / KI**  | Python + SentenceTransformers |
 | **Frontend**    | React + TypeScript            |
 
 ---
@@ -118,7 +118,7 @@ SoupMate\src\supabase\functions\server\
 
 - **Deno** (für das Backend): [Installation](https://deno.land/)
 - **Node.js & npm** (für das Frontend): [Installation](https://nodejs.org/)
-- **Python** (für FAISS-Skripte): [Installation](https://www.python.org/)
+- **Python** [Installation](https://www.python.org/)
 
 ## 🔧 **Probleme & Lösungen**
 
