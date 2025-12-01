@@ -66,7 +66,7 @@ class EmbeddingService:
             "wants": wants
         }
 
-    # BAUt SQL-Filter
+    # BAUT SQL-Filter
     def _build_filter_sql(self, intent: Dict[str, Any]) -> Tuple[str, list]:
         where_parts = []
         params = []

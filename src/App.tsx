@@ -75,7 +75,6 @@ export default function App() {
     ingredients: ""
   });
 
-  // 🔥 Vereinfachte Session Initialisierung
   useEffect(() => {
     const initializeAuth = async () => {
       try {
@@ -138,7 +137,6 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // KORRIGIERTE removeFavorite Funktion
   const removeFavorite = async (recipeId: string) => {
     console.log('🔄 removeFavorite called:', { recipeId, userId, accessToken });
 
@@ -169,7 +167,6 @@ export default function App() {
         throw new Error(`Failed to remove favorite: ${response.status}`);
       }
 
-      // Entferne lokal
       const newFavorites = favorites.filter(f => f.id !== recipeId);
       setFavorites(newFavorites);
       toast.success("Aus Favoriten entfernt");
@@ -180,7 +177,6 @@ export default function App() {
     }
   };
 
-  // KORRIGIERTE addFavorite Funktion
   const addFavorite = async (recipe: Recipe) => {
     console.log('🔄 addFavorite called:', { recipe, userId, accessToken });
 
@@ -238,11 +234,10 @@ export default function App() {
     setFilters(newFilters);
   }, []);
 
-  // 🔥 KORRIGIERTE handleLoginSuccess - Kein automatisches Profil-Setup mehr
+  // handleLoginSuccess - Kein automatisches Profil-Setup mehr
   const handleLoginSuccess = async (newUserId: string, newAccessToken: string, needsProfile: boolean) => {
     console.log('✅ Login success:', { newUserId, needsProfile });
 
-    // Setze die Werte direkt (nicht auf den Listener warten)
     setUserId(newUserId);
     setAccessToken(newAccessToken);
     setShowLogin(false);
@@ -282,14 +277,12 @@ export default function App() {
     }
   };
 
-  // Handle profile setup completion
   const handleProfileComplete = (fullName: string) => {
     setUserName(fullName);
     setShowProfileSetup(false);
     toast.success(`Willkommen ${fullName}!`);
   };
 
-  // 🔥 KORRIGIERTE handleLogout Funktion
   const handleLogout = async () => {
     try {
       console.log('🚪 Logging out...');
@@ -341,7 +334,7 @@ export default function App() {
       after: finalUniqueRecipes.length
     });
 
-    // 🔥 KORREKTUR: Neue Nachrichten werden am ENDE des Arrays hinzugefügt (unten)
+    // Neue Nachrichten werden am ENDE des Arrays hinzugefügt (unten)
     setChatHistory(prev => [
       ...prev, // Alte Nachrichten bleiben oben
       {
