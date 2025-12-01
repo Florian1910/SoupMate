@@ -18,7 +18,7 @@ app.get('/:user_id', async (c) => {
   try {
     console.log('🎯 GET /favorites called for user:', c.req.param('user_id'));
 
-    // Auth prüfen
+    // Account prüfen
     const authHeader = c.req.header('Authorization');
     if (!authHeader) {
       return c.json({ error: 'Authorization header required' }, 401);
@@ -41,7 +41,7 @@ app.get('/:user_id', async (c) => {
 
     console.log('🔍 Loading favorites for user:', user_id);
 
-    // 🔥 VERSUCHE VERSCHIEDENE TABELLENNAMEN
+    // VERSUCHE VERSCHIEDENE TABELLENNAMEN
     let tableName = 'user_favorites';
     let data, error;
 
@@ -51,18 +51,6 @@ app.get('/:user_id', async (c) => {
       .select('recipe_id, created_at')
       .eq('user_id', user_id)
       .order('created_at', { ascending: false }));
-
-    // Falls Tabelle nicht existiert, versuche andere Namen
-    if (error && error.message.includes('does not exist')) {
-      console.log('⚠️ Table user_favorites not found, trying alternatives...');
-
-      tableName = 'favorites';
-      ({ data, error } = await supabase
-        .from(tableName)
-        .select('recipe_id, created_at')
-        .eq('user_id', user_id)
-        .order('created_at', { ascending: false }));
-    }
 
     if (error) {
       console.error('❌ Database error:', error);
@@ -96,7 +84,7 @@ app.get('/:user_id', async (c) => {
   }
 });
 
-// Vereinfachter Favoriten-Endpoint - KORRIGIERT
+// Fügt rezept zu favoriten hinzu
 app.post('/', async (c) => {
   try {
     console.log('🎯 POST /favorites called');
@@ -133,7 +121,6 @@ app.post('/', async (c) => {
 
     console.log('💾 Adding favorite for user:', user.id, 'recipe:', recipe_id);
 
-    // 🔥 VERSUCHE VERSCHIEDENE TABELLEN
     let tableName = 'user_favorites';
     let data, error;
 
@@ -147,22 +134,6 @@ app.post('/', async (c) => {
       }])
       .select()
       .single());
-
-    // Fallback falls Tabelle nicht existiert
-    if (error && error.message.includes('does not exist')) {
-      console.log('⚠️ Table user_favorites not found, trying favorites...');
-
-      tableName = 'favorites';
-      ({ data, error } = await supabase
-        .from(tableName)
-        .insert([{
-          user_id: user.id,
-          recipe_id: recipe_id,
-          created_at: new Date().toISOString()
-        }])
-        .select()
-        .single());
-    }
 
     if (error) {
       console.log('❌ Database error:', error);
@@ -217,15 +188,6 @@ app.delete('/', async (c) => {
       .delete()
       .eq('user_id', user.id)
       .eq('recipe_id', recipe_id);
-
-    if (error && error.message.includes('does not exist')) {
-      tableName = 'favorites';
-      ({ error } = await supabase
-        .from(tableName)
-        .delete()
-        .eq('user_id', user.id)
-        .eq('recipe_id', recipe_id));
-    }
 
     if (error) throw error;
 
