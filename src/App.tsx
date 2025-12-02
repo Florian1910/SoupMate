@@ -186,13 +186,32 @@ export default function App() {
       return;
     }
 
-    // Check if already favorited
-    if (favorites.some(f => f.id === recipe.id)) {
-      toast.info("Dieses Rezept ist bereits in deinen Favoriten");
+    // Sicherstellen, dass userName existiert
+    if (!userName) {
+      console.log('❌ userName is missing');
+      toast.error("Benutzername fehlt!");
       return;
     }
 
     try {
+      console.log('📤 Fetching user profile...');
+
+      // Fetch user profile from user_profiles table
+      const { data: userProfile, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('full_name')
+        .eq('user_id', userId)
+        .single();
+
+      if (profileError || !userProfile) {
+        console.error('❌ User profile not found:', profileError);
+        toast.error("Benutzername konnte nicht geladen werden");
+        return;
+      }
+
+      const userName = userProfile.full_name;
+      console.log('✅ User profile found:', userName);
+
       console.log('📤 Sending favorite to server...');
 
       const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-b187574e/favorites`, {
@@ -202,12 +221,11 @@ export default function App() {
           'Authorization': `Bearer ${accessToken}`
         },
         body: JSON.stringify({
-          recipe_id: recipe.id,
-          recipe_data: recipe
+          recipe_id: recipe.id,   // Rezept-ID
+          recipe: recipe,         // Das gesamte Rezept-Objekt
+          userName: userName,     // userName wird übergeben
         }),
       });
-
-      console.log('📥 Server response:', response.status);
 
       if (!response.ok) {
         const errorData = await response.json();
