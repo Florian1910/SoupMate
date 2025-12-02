@@ -11,7 +11,7 @@ app.use('*', cors({
   credentials: true,
 }));
 
-// 1. Health endpoint
+// 1. Health endpoint für testing
 app.get('/health', (c) => {
   return c.json({
     ok: true,
@@ -21,19 +21,21 @@ app.get('/health', (c) => {
   });
 });
 
-// Hilfsfunktion: Escape Regex-Sonderzeichen
+// Hilfsfunktion: Regex - falls im Rezeptnamen Sonderzeichen sind werden entfernt
 function escapeRegex(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// LADE HÄUFIGSTE ZUTATEN AUS DATENBANK
+// Cache Mechanismus für weniger Datenbank load - schneller
 let commonIngredientsCache: string[] = [];
 let cacheTimestamp = 0;
 const CACHE_DURATION = 5 * 60 * 1000;
 
+// Zutaten laden aus der Datenbank
 async function loadCommonIngredients(): Promise<string[]> {
   const now = Date.now();
 
+// Wenn Cache vorhanden ist und noch nicht abgelaufen, werden Rezepte hier genommen und nicht nochmal abgefragt
   if (commonIngredientsCache.length > 0 && (now - cacheTimestamp) < CACHE_DURATION) {
     return commonIngredientsCache;
   }
@@ -41,7 +43,7 @@ async function loadCommonIngredients(): Promise<string[]> {
   try {
     console.log('[INGREDIENTS] Loading common ingredients from database...');
 
-    // Hole häufige Zutaten (vereinfachte Version)
+    // Hole häufige Zutaten
     const { data: ingredients, error } = await supabase
       .from('test_ingredients')
       .select('name')
@@ -52,7 +54,7 @@ async function loadCommonIngredients(): Promise<string[]> {
       return getFallbackIngredients();
     }
 
-    // Verarbeite Zutaten-Namen
+    // Verarbeite Zutaten-Namen - einheitlich um Probleme zu vermeiden
     const commonIngredients = ingredients
       .map(ing => ing.name.toLowerCase().trim())
       .filter(name => {
@@ -63,7 +65,7 @@ async function loadCommonIngredients(): Promise<string[]> {
         return true;
       })
       .map(name => {
-        // Einfache Plural-zu-Singular Konvertierung
+        // Einfache Plural-zu-Singular Konvertierung - "tomato" such auch nach "tomatoes"
         let baseName = name;
         if (baseName.endsWith('ies')) baseName = baseName.replace(/ies$/, 'y');
         if (baseName.endsWith('es')) baseName = baseName.replace(/es$/, '');
@@ -71,7 +73,7 @@ async function loadCommonIngredients(): Promise<string[]> {
         return baseName;
       })
       .filter((name, index, self) => {
-        // Einzigartig und nicht zu ähnlich zu anderen
+        // filtet eingaben - wenn zuerst "tomato" und danach "tomatoes" genannt wird, wird nur ersteres genommen
         const isUnique = self.indexOf(name) === index;
         const isNotSubstring = !self.some(other =>
           other !== name && (other.includes(name) || name.includes(other))
@@ -94,7 +96,7 @@ async function loadCommonIngredients(): Promise<string[]> {
   }
 }
 
-function getFallbackIngredients(): string[] {
+function getFallbackIngredients(): string[] { //für testen, falls Datenbank probleme hatte
   return [
     'tomato', 'onion', 'garlic', 'potato', 'carrot', 'salt', 'pepper',
     'oil', 'butter', 'water', 'sugar', 'flour', 'egg', 'milk', 'cheese',
@@ -104,7 +106,7 @@ function getFallbackIngredients(): string[] {
   ];
 }
 
-// EXTRAHIERE ZUTATEN AUS QUERY - SICHERE VERSION
+// Zutaten aus query extrahieren
 async function extractIngredientsFromQuery(query: string): Promise<string[]> {
   if (!query || !query.trim()) return [];
 
@@ -115,7 +117,7 @@ async function extractIngredientsFromQuery(query: string): Promise<string[]> {
     const queryLower = query.toLowerCase();
     const foundIngredients: string[] = [];
 
-    // Liste von wichtigen Zutaten, die besonders priorisiert werden sollten
+    // Liste von wichtigen Zutaten, die besonders priorisiert werden sollten - für schnellere Performance
     const priorityIngredients = [
       'tomato', 'tomatoes', 'soup', 'lentil', 'lentils', 'parsley',
       'olive oil', 'olive', 'oil', 'fish', 'potato', 'potatoes',
@@ -129,7 +131,7 @@ async function extractIngredientsFromQuery(query: string): Promise<string[]> {
       }
     });
 
-    // 2. Dann nach anderen Zutaten suchen
+    // 2. Dann nach anderen Zutaten suchen - überprüfung auf Mehrzahl der Zutat
     commonIngredients.forEach(ingredient => {
       if (queryLower.includes(ingredient) && !foundIngredients.includes(ingredient)) {
         // Prüfe ob es ein ganzes Wort ist
@@ -147,14 +149,7 @@ async function extractIngredientsFromQuery(query: string): Promise<string[]> {
       }
     });
 
-    // 3. Extrahiere "tomato soup" als Kombination
-    if (queryLower.includes('tomato') && queryLower.includes('soup')) {
-      if (!foundIngredients.includes('tomato soup')) {
-        foundIngredients.push('tomato soup');
-      }
-    }
-
-    // Entferne Duplikate
+    // Entferne Duplikate - Sicherheitsüberprüfung
     const uniqueIngredients = [...new Set(foundIngredients.filter(i => i.length > 0))];
 
     console.log(`[QUERY-EXTRACT] Extracted ingredients: ${uniqueIngredients.join(', ')}`);
@@ -166,32 +161,7 @@ async function extractIngredientsFromQuery(query: string): Promise<string[]> {
   }
 }
 
-// EINFACHE EXTRAKTION (Fallback)
-function extractIngredientsSimple(query: string): string[] {
-  if (!query) return [];
-
-  const queryLower = query.toLowerCase();
-  const found: string[] = [];
-
-  // Liste von bekannten Zutaten (ohne problematische)
-  const knownIngredients = [
-    'tomato', 'tomatoes', 'salad', 'potato', 'potatoes', 'fish',
-    'parsley', 'olive', 'oil', 'chicken', 'beef', 'pork', 'rice',
-    'pasta', 'cheese', 'egg', 'milk', 'cream', 'butter', 'garlic',
-    'onion', 'carrot', 'pepper', 'salt', 'sugar', 'flour', 'bread',
-    'lemon', 'lime', 'herb', 'spice', 'water', 'broth', 'stock'
-  ];
-
-  knownIngredients.forEach(ing => {
-    if (queryLower.includes(ing)) {
-      found.push(ing);
-    }
-  });
-
-  return [...new Set(found)];
-}
-
-// SEMANTISCHE ZUTATENSUCHE
+// Ählichkeitssuche anhand von Zutaten
 async function semanticIngredientSearchWithBonus(query: string, limit: number = 30) {
   try {
     console.log(`[SEMANTIC] Semantic search for: "${query}"`);
@@ -214,7 +184,7 @@ async function semanticIngredientSearchWithBonus(query: string, limit: number = 
     const { data: allIngredients, error } = await supabase
       .from('test_ingredients')
       .select('ingredient_id, name')
-      .limit(300); // Begrenzt für Performance
+      .limit(300);
 
     if (error || !allIngredients) {
       console.error('[SEMANTIC] Error loading ingredients:', error);
@@ -236,13 +206,13 @@ async function semanticIngredientSearchWithBonus(query: string, limit: number = 
         const nameLower = ingredient.name.toLowerCase();
         let similarity = 0;
 
-        // 1. Exakter oder teilweiser Match
+        // 1. Exakter oder teilweiser Match - (tomato -> tomato soup)
         if (nameLower === queryIngLower) {
           similarity = 1.0;
         } else if (nameLower.includes(queryIngLower) || queryIngLower.includes(nameLower)) {
           similarity = 0.8;
         }
-        // 2. Ähnliche Basis (Plural/Singular)
+        // 2. Ähnliche Basis (Plural/Singular) - (tomato -> tomatoes)
         else {
           const nameBase = nameLower.replace(/s$/, '').replace(/es$/, '').replace(/ies$/, 'y');
           const queryBase = queryIngLower.replace(/s$/, '').replace(/es$/, '').replace(/ies$/, 'y');
@@ -250,7 +220,7 @@ async function semanticIngredientSearchWithBonus(query: string, limit: number = 
           if (nameBase === queryBase) {
             similarity = 0.7;
           }
-          // 3. Wort-Stamm Matching
+          // 3. Wort-Stamm Matching (- (cherry tomato -> tomato))
           else if (nameBase.startsWith(queryBase) || queryBase.startsWith(nameBase)) {
             similarity = 0.6;
           }
@@ -286,7 +256,7 @@ async function semanticIngredientSearchWithBonus(query: string, limit: number = 
 }
 
 
-// NEUE FUNKTION: Berechne Namen-Match-Score (wie zuvor)
+// Berechnet, wie gut der Rezeptname zur Suchquery passt
 function calculateNameMatchScore(recipeName: string, query: string): { score: number, type: string } {
   if (!query || !query.trim()) return { score: 0, type: 'none' };
 
@@ -307,7 +277,7 @@ function calculateNameMatchScore(recipeName: string, query: string): { score: nu
   }
 
   // 2. Name enthält die wichtigsten Query-Wörter in Reihenfolge
-  // Für "tomato soup" → prüfe ob "tomato" UND "soup" im Namen sind
+  // Für "tomato soup" → prüfe zb. ob "tomato" und "soup" im Namen sind
   const importantWords = queryWords.filter(word =>
     word.length > 3 && ['tomato', 'soup', 'lentil', 'parsley', 'olive', 'oil'].includes(word)
   );
@@ -317,7 +287,7 @@ function calculateNameMatchScore(recipeName: string, query: string): { score: nu
     const someImportantWordsInName = importantWords.some(word => nameLower.includes(word));
 
     if (allImportantWordsInName) {
-      // EXTRA HOCHER SCORE FÜR ALLE WICHTIGEN WÖRTER
+
       const matchRatio = importantWords.filter(word => nameLower.includes(word)).length / importantWords.length;
       return {
         score: 10.0 + (matchRatio * 2.0), // 10.0-12.0
@@ -340,7 +310,7 @@ function calculateNameMatchScore(recipeName: string, query: string): { score: nu
 
   // 4. Name endet mit Query
   if (nameLower.endsWith(' ' + queryLower)) {
-    return { score: 8.5, type: 'ends-with' };
+    return { score: 9, type: 'ends-with' };
   }
 
   // 5. Name enthält Query als einzelnes Wort
@@ -353,7 +323,7 @@ function calculateNameMatchScore(recipeName: string, query: string): { score: nu
     return { score: 7.0, type: 'contains' };
   }
 
-  // 7. Alle Query-Wörter im Namen (ungeachtet der Reihenfolge)
+  // 7. Alle Query-Wörter im Namen (ungeachtet der Reihenfolge) - tomato, lentil - tomato lentil soup
   if (queryWords.length > 1 && queryWords.every(word => nameLower.includes(word))) {
     const matchRatio = queryWords.filter(word => nameLower.includes(word)).length / queryWords.length;
     return {
@@ -362,7 +332,7 @@ function calculateNameMatchScore(recipeName: string, query: string): { score: nu
     };
   }
 
-  // 8. Einige Query-Wörter im Namen
+  // 8. Einige Query-Wörter im Namen - tomato, lentil, parsley - tomato lentil soup
   if (queryWords.length > 0) {
     const matchingWords = queryWords.filter(word => nameLower.includes(word));
     const matchRatio = matchingWords.length / queryWords.length;
@@ -401,7 +371,7 @@ app.post('/', async (c) => {
     let searchDetails: string[] = [];
     let queryIngredients: string[] = [];
 
-    // SCHRITT 1: SEMANTISCHE SUCHE MIT ERROR-HANDLING
+    // Schritt 1: Semantische Suche
     if (query && query.trim() !== '') {
       let searchResult;
       try {
@@ -477,7 +447,7 @@ app.post('/', async (c) => {
       }
     }
 
-    // SCHRITT 2: TEXTSUCHE FÜR KURZE QUERIES
+    // SCHRITT 2: Textsuche für kurze Queries, falls semantische Suche zu wenig Rezepte findet
     if (recipeIds.length < k && query && query.trim().length < 100) {
       const { data: textMatches } = await supabase
         .from('test_recipes')
@@ -499,19 +469,7 @@ app.post('/', async (c) => {
         });
       }
     }
-
-    // SCHRITT 3: FALLBACK
-    if (recipeIds.length === 0) {
-      console.log('[FALLBACK] No specific matches, returning popular recipes');
-      const { data: popularRecipes } = await supabase
-        .from('test_recipes')
-        .select('recipe_id')
-        .order('created_at', { ascending: false })
-        .limit(k);
-
-      recipeIds = popularRecipes?.map(r => r.recipe_id) || [];
-    }
-
+    // wenn nichts gefunden wird
     console.log(`[SEARCH] Found ${recipeIds.length} recipes`);
     console.log(`[SEARCH] Query ingredients: ${queryIngredients.length > 0 ? queryIngredients.join(', ') : 'none detected'}`);
 
@@ -542,7 +500,7 @@ app.post('/', async (c) => {
       });
     }
 
-    // SCHRITT 5: FILTER
+    // SCHRITT 5: Filter
     let filteredRecipes = recipes;
 
     if (dietType && dietType !== 'alle') {
@@ -563,7 +521,7 @@ app.post('/', async (c) => {
       );
     }
 
-    // SCHRITT 6: SCORING
+    // SCHRITT 6: Scoring bonus - wenn zb zusätzlich komplette anfrage in Beschreibung vorkommt
     const recipesWithScores = filteredRecipes
       .map(recipe => {
         let finalScore = semanticScore[recipe.recipe_id] || 0;
@@ -589,11 +547,11 @@ app.post('/', async (c) => {
       })
       .sort((a, b) => b.semantic_score - a.semantic_score);
 
-    // SCHRITT 7: QUALITÄTSFILTERUNG
+    // SCHRITT 7: Qualitätsfilter
     const scores = recipesWithScores.map(r => r.semantic_score);
     const maxScore = Math.max(...scores, 1);
 
-    // Dynamischer Grenzwert
+    // Grenzwerte für ausgabe - 35% des maximalen Scores
     const baseThreshold = Math.max(maxScore * 0.35, 3.0);
     const qualityThreshold = queryIngredients.length > 2
       ? baseThreshold + 1.0
