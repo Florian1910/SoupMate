@@ -107,6 +107,7 @@ function getFallbackIngredients(): string[] { //für testen, falls Datenbank pro
 }
 
 // Zutaten aus query extrahieren
+// Zutaten aus query extrahieren
 async function extractIngredientsFromQuery(query: string): Promise<string[]> {
   if (!query || !query.trim()) return [];
 
@@ -117,25 +118,78 @@ async function extractIngredientsFromQuery(query: string): Promise<string[]> {
     const queryLower = query.toLowerCase();
     const foundIngredients: string[] = [];
 
+    // STOPWORDS definieren
+    const stopWords = new Set([
+      'i', 'want', 'need', 'would', 'like', 'to', 'make', 'cook', 'prepare',
+      'something', 'with', 'and', 'or', 'the', 'a', 'an', 'my', 'me',
+      'recipe', 'recipes', 'dish', 'dishes', 'meal', 'food',
+      'hello', 'hi', 'please', 'thanks', 'thank', 'you', 'have', 'has',
+      'can', 'could', 'should', 'what', 'how', 'when', 'where', 'why',
+      'give', 'get', 'find', 'looking', 'for', 'because', 'since', 'from'
+    ]);
+
+    // Entferne Stopwords aus der Query für die Suche
+    let searchQuery = queryLower;
+    stopWords.forEach(stopWord => {
+      searchQuery = searchQuery.replace(new RegExp(`\\b${stopWord}\\b`, 'g'), ' ');
+    });
+    searchQuery = searchQuery.replace(/\s+/g, ' ').trim();
+
+    console.log(`[EXTRACT] Original query: "${queryLower}"`);
+    console.log(`[EXTRACT] After stopword removal: "${searchQuery}"`);
+
     // Liste von wichtigen Zutaten, die besonders priorisiert werden sollten - für schnellere Performance
     const priorityIngredients = [
+      // Probleme mit Zutatensuche
       'tomato', 'tomatoes', 'soup', 'lentil', 'lentils', 'parsley',
       'olive oil', 'olive', 'oil', 'fish', 'potato', 'potatoes',
-      'chicken', 'beef', 'pork', 'salmon', 'cod', 'shrimp'
+      'chicken', 'beef', 'pork', 'salmon', 'cod', 'shrimp',
+      'strawberry', 'strawberries', 'mango', 'mangoes',
+      'banana', 'bananas', 'apple', 'apples', 'orange', 'oranges',
+      'carrot', 'carrots', 'onion', 'onions', 'garlic',
+      'cheese', 'pasta', 'rice', 'bread', 'flour', 'sugar',
+      'chorizo', 'basil', 'infused olive oil', 'chorizo links',
+      'skim milk', 'milk powder', 'peanut butter', 'sea salt',
+      'chia seeds', 'bread crumbs', 'red onion', 'cashews',
+      'rosemary', 'bacon', 'sundried tomatoes', 'stew meat',
+      'dill', 'skirt steak', 'skirt steaks',
+      'tomato paste', 'avocado', 'avocados', 'spring roll',
+      'spring roll wrappers', 'asparagus', 'vegetables',
+      'cut-up vegetables', 'bulb onion', 'chicken breast',
+      'roma tomatoes', 'cayenne pepper', 'salmon fillet',
+      'bulgur', 'kale', 'dinosaur kale', 'daikon', 'daikon radish','new potatoes',
+      'cumin', 'cumin seed', 'cumin powder',
+      'water', 'chicken bouillon', 'bouillon', 'boston lettuce',
+      'tarragon', 'sweet potato', 'sweet potatoes',
+      'beef short ribs', 'chicken stock', 'caviar',
+      'salt', 'pepper', 'crabmeat','pot roast', 'ancho chile', 'ancho chile powder',
+      'parmesan', 'parmesan rind', 'yogurt',
+      'peanut vinaigrette', 'spicy peanut vinaigrette',
+      'pita bread', 'wholewheat pita', 'scotch bonnet',
+      'scotch bonnet pepper', 'matcha', 'matcha tea',
+      'matcha powder', 'buttermilk', 'scallion',
+      'swiss chard', 'banana', 'bananas', 'snap peas',
+      'lemon', 'orange pepper', 'salt', 'pepper', 'water', 'stock', 'broth',
+      'butter', 'cream', 'milk', 'egg', 'eggs',
+      'vinegar', 'honey', 'maple syrup', 'soy sauce',
+      'worcestershire sauce', 'mustard', 'mayonnaise',
+      'ketchup', 'hot sauce', 'sriracha'
     ];
 
-    // 1. Suche zuerst nach PRIORITÄTS-ZUTATEN
+    // 1. Suche zuerst nach PRIORITÄTS-ZUTATEN (in der bereinigten Query)
     priorityIngredients.forEach(ingredient => {
-      if (queryLower.includes(ingredient)) {
+      if (searchQuery.includes(ingredient)) {
         foundIngredients.push(ingredient);
       }
     });
 
     // 2. Dann nach anderen Zutaten suchen - überprüfung auf Mehrzahl der Zutat
     commonIngredients.forEach(ingredient => {
-      if (queryLower.includes(ingredient) && !foundIngredients.includes(ingredient)) {
-        // Prüfe ob es ein ganzes Wort ist
+      if (searchQuery.includes(ingredient) && !foundIngredients.includes(ingredient)) {
+        // Prüfe ob es ein ganzes Wort ist (in der ORIGINALEN Query)
         const index = queryLower.indexOf(ingredient);
+        if (index === -1) return;
+
         const before = index > 0 ? queryLower[index - 1] : ' ';
         const after = index + ingredient.length < queryLower.length
           ? queryLower[index + ingredient.length]
@@ -264,7 +318,7 @@ function calculateNameMatchScore(recipeName: string, query: string): { score: nu
   const queryLower = query.toLowerCase().trim();
 
   // Extrahiere Schlüsselwörter aus der Query
-  const stopWords = new Set(['i', 'want', 'an', 'a', 'the', 'because', 'have', 'and', 'with']);
+  const stopWords = new Set(['i', 'want', 'an', 'a', 'the', 'because', 'have', 'and', 'with', "something", "need", "hello", "Hello", "meal"]);
   const queryWords = queryLower.split(/\s+/)
     .filter(w => w.length > 2 && !stopWords.has(w))
     .map(w => w.replace(/[.,!?;:]$/, '')); // Entferne Satzzeichen
