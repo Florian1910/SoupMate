@@ -54,7 +54,7 @@ Führe die folgenden Python-Kommandos im `server`-Verzeichnis aus, um Rezepte zu
 
 ### Rezepte von Spoonacular importieren
    ```bash
-   python scripts\main.py ingest --number=10
+   python scripts/main.py ingest --limit-calls 4
    ```
 
 ### Semantische Suche
@@ -77,7 +77,7 @@ SoupMate\src\supabase\functions\server\
 │   ├── import_map.json          # Import-Mappings für Deno
 │   └── environment.ts           # Umgebungsvariablen
 ├── 📁 routes
-│   ├── favorites.ts             # Endpunkte für Favoriten (Favoriten holen/anlegen/löschen)
+│   ├── favorites.ts             
 │   ├── health.ts                # Health-Check
 │   ├── recipes.ts               # Endpunkte rund um Rezepte
 │   └── search.ts                # Endpunkte für die Suche
