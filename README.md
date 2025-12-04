@@ -52,6 +52,11 @@ Führe die folgenden Python-Kommandos im `server`-Verzeichnis aus, um Rezepte zu
    cd src\supabase\functions\server
    ```
 
+### Python-Abhängigkeiten installieren
+   ```bash 
+   pip install -r requirements.txt
+   ```
+
 ### Rezepte von Spoonacular importieren
    ```bash
    python scripts/main.py ingest --limit-calls 4
