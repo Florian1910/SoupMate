@@ -1,5 +1,5 @@
 // server/routes/favorites.ts - KORRIGIERT
-import { Hono } from 'hono';
+import { Hono } from "jsr:@hono/hono";
 import { cors } from 'hono/cors';
 import { supabase } from '../services/database.ts';
 

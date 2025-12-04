@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono } from "jsr:@hono/hono";
 import { SpoonacularService } from '../services/spoonacular.ts';
 import { EmbeddingService } from '../services/embedding.ts';
 import { supabase } from '../services/database.ts'; // Jetzt sollte der Import funktionieren
