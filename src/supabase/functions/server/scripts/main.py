@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 
-#!/usr/bin/env python3
-# Der zentrale Einstiegspunkt (Entry Point) für das CLI-Tool.
-
 import argparse
 import logging
 import sys
@@ -14,7 +11,6 @@ from services.database import DatabaseService
 from services.search_service import EmbeddingService
 
 def ingest_recipes(query: str = "", number: int = 20):
-    """Importiert Rezepte von Spoonacular und speichert sie in der Datenbank"""
     spoonacular = SpoonacularService()
     db = DatabaseService()
 
@@ -48,7 +44,6 @@ def ingest_recipes(query: str = "", number: int = 20):
         sys.exit(1)
 
 def search_by_text(query: str, limit: int, format_output: bool = False):
-    """Führt eine textbasierte semantische Suche durch"""
     embedding_service = EmbeddingService()
 
     try:
@@ -65,7 +60,6 @@ def search_by_text(query: str, limit: int, format_output: bool = False):
         sys.exit(1)
 
 def search_by_ingredients(ingredients: List[str], limit: int, format_output: bool = False):
-    """Führt eine zutatenbasierte semantische Suche durch"""
     embedding_service = EmbeddingService()
 
     try:
@@ -82,7 +76,6 @@ def search_by_ingredients(ingredients: List[str], limit: int, format_output: boo
         sys.exit(1)
 
 def get_recipe_details(recipe_id: str):
-    """Zeigt detaillierte Informationen zu einem Rezept an"""
     embedding_service = EmbeddingService()
 
     try:
@@ -106,24 +99,20 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # Ingestion Parser
     ingest_parser = subparsers.add_parser("ingest", help="Rezepte von Spoonacular importieren")
     ingest_parser.add_argument("--query", default="", help="Optional: Spezifische Suchanfrage")
     ingest_parser.add_argument("--number", type=int, default=20, help="Anzahl der Rezepte")
 
-    # Text Search Parser
     text_search_parser = subparsers.add_parser("search-text", help="Textbasierte semantische Suche")
     text_search_parser.add_argument("--q", required=True, help="Suchanfrage")
     text_search_parser.add_argument("--k", type=int, default=10, help="Anzahl der Ergebnisse")
     text_search_parser.add_argument("--format", action="store_true", help="Formatierte Ausgabe")
 
-    # Ingredient Search Parser
     ing_search_parser = subparsers.add_parser("search-ingredients", help="Zutatenbasierte Suche")
     ing_search_parser.add_argument("--ing", nargs="+", required=True, help="Zutaten")
     ing_search_parser.add_argument("--k", type=int, default=10, help="Anzahl der Ergebnisse")
     ing_search_parser.add_argument("--format", action="store_true", help="Formatierte Ausgabe")
 
-    # Details Parser
     details_parser = subparsers.add_parser("details", help="Rezept-Details anzeigen")
     details_parser.add_argument("--recipe-id", required=True, help="Recipe ID für Details")
 

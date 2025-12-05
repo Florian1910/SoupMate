@@ -5,28 +5,23 @@ from models.embedding import embedding_model
 from services.database import DatabaseService
 from config import TABLE_RECIPES, TABLE_ING, TABLE_LINK, TABLE_NUTRITION
 
-
-
 class EmbeddingService:
     def __init__(self):
         self.db = DatabaseService()
 
-    # 1) INTENT ERKENNEN (generisch). Wichtig für die Freitextsuche
-
+    # 1) INTENT ERKENNEN (generisch)
     def _parse_intent(self, q: str) -> Dict[str, Any]:
-        ql = q.lower() #kleinschreibung
+        ql = q.lower()
 
-        # einfache Negations-Erkennung (no X / ohne X)
         neg_patterns = [
-            r"\bno\s+([a-z][a-z\s\-]+)",       # "no nuts", "no pork"
-            r"\bohne\s+([a-z][a-z\s\-]+)",     # "ohne gluten"
+            r"\bno\s+([a-z][a-z\s\-]+)",
+            r"\bohne\s+([a-z][a-z\s\-]+)",
         ]
-        excludes: Set[str] = set() #wirft alles nach dem no/ohne in excludes rein
+        excludes: Set[str] = set()
         for pat in neg_patterns:
             for m in re.finditer(pat, ql):
                 excludes.add(m.group(1).strip())
 
-        # Zutaten-/Protein-Synonyme (erweiterbar, nicht nur Fleisch!)
         protein_map = {
             "meat": ["meat", "beef", "steak", "ground beef", "minced beef", "pork", "ham", "bacon",
                      "sausage", "chicken", "turkey", "lamb", "veal", "mutton", "duck"],
@@ -37,7 +32,6 @@ class EmbeddingService:
             "nuts": ["nut", "nuts", "almond", "hazelnut", "walnut", "peanut", "cashew", "pistachio"],
         }
 
-        # Diet-Keywords → Flags
         wants = {
             "vegan": any(w in ql for w in [" vegan", "vegan "]),
             "vegetarian": any(w in ql for w in [" vegetarian", "vegetarian "]),
@@ -47,16 +41,13 @@ class EmbeddingService:
             "lactose_free": "lactose free" in ql or "laktosefrei" in ql,
         }
 
-        # geht query mit den wörtern in protein durch
         includes: Set[str] = set()
         for _, words in protein_map.items():
             for w in words:
                 if w in ql:
                     includes.add(w)
 
-        # explizite Stopps (no/ohne)
         for e in list(excludes):
-            # wenn ein exclude selbst in includes steckt → aus includes entfernen
             if e in includes:
                 includes.discard(e)
 
@@ -73,16 +64,13 @@ class EmbeddingService:
 
         w = intent["wants"]
 
-        # harte Diet-Filter (nur wenn im Query erwähnt)
         if w["vegan"]:
             where_parts.append("r.vegan = TRUE")
         elif w["vegetarian"]:
             where_parts.append("r.vegetarian = TRUE")
         elif w["meat"]:
-            # „nicht-vegetarisch“ ist oft näher an „mit Fleisch/Fisch“
             where_parts.append("r.vegetarian = FALSE")
 
-        # Includes eine Übereinstimmung reicht, wegen kleiner Datenbank
         inc = intent["includes"]
         exc = intent["excludes"]
         if inc:
@@ -94,10 +82,9 @@ class EmbeddingService:
                     WHERE ri.recipe_id = r.recipe_id
                       AND i.name ILIKE ANY (ARRAY[%s]) 
                 )
-            """) #ILIKE ANY ist Ähnlichkeit zu einem der gesuchten Begriffe
+            """)
             params.append(tuple(f"%{w}%" for w in inc))
 
-        # Excludes wird das Gericht sofort entfernt, auch wie oben, eine Übereinstimmung
         if exc:
             where_parts.append(f"""
                 NOT EXISTS (
@@ -116,15 +103,12 @@ class EmbeddingService:
 
         return where_sql, params
 
-    # 3) SUCHE: kombiniertes Ranking + optionale Filter nutzen
-
+    # SUCHE: kombiniertes Ranking + optionale Filter
     def search_by_text(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        query_vector = embedding_model.vector_to_literal(embedding_model.embed(query)) #macht Vektorzahl und formartiert diese um für Postgres
+        query_vector = embedding_model.vector_to_literal(embedding_model.embed(query))
         intent = self._parse_intent(query)
         where_sql, where_params = self._build_filter_sql(intent)
 
-        # Ranking: Text + Zutaten (L2-Distanzen) → in "Pseudo-Similarity" umrechnen
-        # + kleiner Boost, wenn Zutaten-Keywords matchen; Penalty bei Intent-Konflikt
         sql = f"""
             WITH q AS (SELECT %s::vector AS qv)
             SELECT
@@ -161,31 +145,27 @@ class EmbeddingService:
         """
 
         params_header = [
-            query_vector,                              # %s -> q.qv
-            intent["wants"]["meat"],                   # %s
-            intent["wants"]["vegan"],                  # %s
-            intent["wants"]["vegetarian"],             # %s
-            bool(intent["includes"]),                  # %s
-            tuple(f"%{w}%" for w in intent["includes"]) if intent["includes"] else tuple(["%__noop__%"]),  # ARRAY[%s]
+            query_vector,
+            intent["wants"]["meat"],
+            intent["wants"]["vegan"],
+            intent["wants"]["vegetarian"],
+            bool(intent["includes"]),
+            tuple(f"%{w}%" for w in intent["includes"]) if intent["includes"] else tuple(["%__noop__%"]),
         ]
 
         final_params = list(params_header)
-
-        # WHERE-Parameter (kommen aus _build_filter_sql, können Tuples für ARRAY[%s] enthalten)
         for p in where_params:
             final_params.append(p)
 
         expanded_limit = max(20, int(limit) * 5)
-        final_params.append(expanded_limit)  # %s für LIMIT im SQL
-
+        final_params.append(expanded_limit)
 
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, final_params)
-
                 rows = cur.fetchall()
 
-                seen_titles = set()  # exakt, ohne Normalisierung
+                seen_titles = set()
                 results = []
 
                 for row in rows:
@@ -193,11 +173,11 @@ class EmbeddingService:
                     name = row[1] or ""
 
                     if name in seen_titles:
-                        continue  # Duplikat per exakt gleichem Namen überspringen
+                        continue
 
                     ingredients = self._get_recipe_ingredients(cur, recipe_id)
 
-                    results.append({ # Antwortobjekt
+                    results.append({
                         "recipe_id": recipe_id,
                         "name": name,
                         "description": row[2],
@@ -215,7 +195,7 @@ class EmbeddingService:
                         "distance_text": float(row[14]),
                         "distance_ingredients": float(row[15]) if row[15] is not None else None,
                         "score": float(row[16]),
-                        "distance": float(row[14]),  # Back-compat fürs CLI
+                        "distance": float(row[14]),
                         "ingredients": ingredients
                     })
 
@@ -227,30 +207,20 @@ class EmbeddingService:
                 return results
 
     def search_by_ingredients(self, ingredients: List[str], limit: int = 10) -> List[Dict[str, Any]]:
-        """
-        Sucht nach Rezepten über das Zutaten-Embedding (L2 <->).
-        - Erste Zutat wird stärker gewichtet (PRIMARY_WEIGHT).
-        - Duplikate (exakt gleicher Name) werden entfernt.
-        - Es werden mehr Kandidaten geholt und danach auf `limit` gekürzt.
-        - Liefert ein Feld "ingredients" zurück (für CLI-Formatter).
-        """
         if not ingredients:
             return []
 
-        # Gewichtung der Zutaten (erste Zutat wichtiger als die danach)
-        PRIMARY_WEIGHT = 2.0   # ggf. 3.0, wenn noch stärker
-        DECAY = 1.0            # 1.0 = keine Abwertung; z.B. 0.9 für leichten Abfall
+        PRIMARY_WEIGHT = 2.0
+        DECAY = 1.0
 
-        # Einzelembeddings je Zutat + Gewichte bauen
         single_vecs: List[List[float]] = []
         weights: List[float] = []
         for idx, ing in enumerate(ingredients):
-            v = embedding_model.embed(ing)  # -> vektor umwandlung
+            v = embedding_model.embed(ing)
             single_vecs.append(v)
             w = (PRIMARY_WEIGHT if idx == 0 else (DECAY ** idx))
             weights.append(w)
 
-        # Gewichtung für anzeige
         dim = len(single_vecs[0])
         weighted = [0.0] * dim
         weight_sum = 0.0
@@ -262,8 +232,6 @@ class EmbeddingService:
             weighted = [x / weight_sum for x in weighted]
 
         query_vector = embedding_model.vector_to_literal(weighted)
-
-        # Mehr Kandidaten holen (damit nach Dedup noch genug übrig bleiben)
         expanded_limit = max(20, int(limit) * 5)
 
         with self.db.get_connection() as conn:
@@ -285,7 +253,6 @@ class EmbeddingService:
 
                 rows = cur.fetchall()
 
-                # Duplikate anhand EXAKT gleichem Namen entfernen
                 seen_titles = set()
                 results: List[Dict[str, Any]] = []
 
@@ -296,7 +263,6 @@ class EmbeddingService:
                     if name in seen_titles:
                         continue
 
-                    # Zutatenliste für dieses Rezept holen (CLI erwartet "ingredients")
                     ingredients_list = self._get_recipe_ingredients(cur, recipe_id)
 
                     results.append({
@@ -314,9 +280,9 @@ class EmbeddingService:
                         "carbohydrates": row[11],
                         "fat": row[12],
                         "price_per_serving": f"{row[13]}€",
-                        "distance": float(row[14]),              # Back-compat fürs bestehende CLI
+                        "distance": float(row[14]),
                         "distance_ingredients": float(row[14]),
-                        "ingredients": ingredients_list           # <- WICHTIG: für Formatter
+                        "ingredients": ingredients_list
                     })
 
                     seen_titles.add(name)
@@ -326,10 +292,7 @@ class EmbeddingService:
 
                 return results
 
-
-
     def _get_recipe_ingredients(self, cur, recipe_id: str) -> List[Dict[str, Any]]:
-        """Holt alle Zutaten für ein Rezept"""
         cur.execute(
             f"""
             SELECT 
@@ -359,7 +322,6 @@ class EmbeddingService:
     def get_recipe_details(self, recipe_id: str) -> Dict[str, Any]:
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
-                # Grundlegende Rezeptinformationen
                 cur.execute(
                     f"""
                     SELECT 
@@ -377,7 +339,6 @@ class EmbeddingService:
                 if not recipe:
                     return {"error": "Rezept nicht gefunden"}
 
-                # Detaillierte Nährwerte
                 cur.execute(
                     f"""
                     SELECT calories, protein, carbohydrates, fat, saturated_fat, fiber, sugar,
@@ -389,14 +350,13 @@ class EmbeddingService:
                 )
                 nutrition = cur.fetchone()
 
-                # Zutaten
                 ingredients = self._get_recipe_ingredients(cur, recipe_id)
 
                 return {
                     "recipe": {
                         "name": recipe[0],
                         "description": recipe[1],
-                        "instructions": recipe[2],  # ✅ Instructions
+                        "instructions": recipe[2],
                         "vegan": recipe[3],
                         "vegetarian": recipe[4],
                         "difficulty": recipe[5],
@@ -414,5 +374,5 @@ class EmbeddingService:
                         "price_per_serving": recipe[17]
                     },
                     "nutrition": nutrition if nutrition else None,
-                    "ingredients": ingredients  # ✅ Bereits vorhanden
+                    "ingredients": ingredients
                 }
