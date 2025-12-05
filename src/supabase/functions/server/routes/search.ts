@@ -1,3 +1,4 @@
+// search.ts - MIT BILD
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { supabase } from '../services/database.ts';
@@ -11,7 +12,7 @@ app.use('*', cors({
   credentials: true,
 }));
 
-// Hilfsfunktion für Terminal-Ausgabe
+// Hilfsfunktion für Terminal-Ausgabe MIT BILD
 function formatRecipeForTerminal(recipe: any, index: number): string {
   return `
 ==================================================
@@ -21,6 +22,7 @@ ERGEBNIS ${index + 1}: ${recipe.name}
 🥗 Diät: ${recipe.diet} | 🥬 Vegan: ${recipe.vegan} | 🌱 Vegetarisch: ${recipe.vegetarian}
 ⏱️  Zeit: ${recipe.total_time}min | 🎯 Schwierigkeit: ${recipe.difficulty}/5
 💰 Preis: ${recipe.price_per_serving} | 🏆 FINAL SCORE: ${recipe.score?.toFixed(4) || 'N/A'}
+🖼️  Bild: ${recipe.image_url || 'Kein Bild verfügbar'}
 
 📋 ZUTATEN (${recipe.ingredients?.length || 0}):
 ${recipe.ingredients?.slice(0, 5).map((ing: any) => `  • ${ing.name}: ${ing.quantity_text || ''}`).join('\n')}

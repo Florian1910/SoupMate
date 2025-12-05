@@ -115,6 +115,7 @@ class EmbeddingService:
                 r.recipe_id, r.name, r.description, r.instructions,
                 r.diet, r.vegan, r.vegetarian, r.total_time, r.difficulty,
                 r.calories, r.protein, r.carbohydrates, r.fat, r.price_per_serving,
+                r.image_url,  -- ✅ Hier fehlte das Bild!
                 (r.text_embedding <-> q.qv)          AS d_text,
                 (r.ingredients_embedding <-> q.qv)   AS d_ing,
                 (
@@ -192,10 +193,11 @@ class EmbeddingService:
                         "carbohydrates": row[11],
                         "fat": row[12],
                         "price_per_serving": f"{row[13]}€",
-                        "distance_text": float(row[14]),
-                        "distance_ingredients": float(row[15]) if row[15] is not None else None,
-                        "score": float(row[16]),
-                        "distance": float(row[14]),
+                        "image_url": row[14],  # ✅ Hier ist jetzt das Bild!
+                        "distance_text": float(row[15]),
+                        "distance_ingredients": float(row[16]) if row[16] is not None else None,
+                        "score": float(row[17]),
+                        "distance": float(row[15]),
                         "ingredients": ingredients
                     })
 
@@ -242,7 +244,7 @@ class EmbeddingService:
                         r.recipe_id, r.name, r.description, r.instructions,
                         r.diet, r.vegan, r.vegetarian, r.total_time, r.difficulty,
                         r.calories, r.protein, r.carbohydrates, r.fat,
-                        r.price_per_serving,
+                        r.price_per_serving, r.image_url,  -- ✅ Hier auch!
                         (r.ingredients_embedding <-> %s::vector) AS d_ing
                     FROM {TABLE_RECIPES} r
                     ORDER BY r.ingredients_embedding <-> %s::vector
@@ -280,8 +282,9 @@ class EmbeddingService:
                         "carbohydrates": row[11],
                         "fat": row[12],
                         "price_per_serving": f"{row[13]}€",
-                        "distance": float(row[14]),
-                        "distance_ingredients": float(row[14]),
+                        "image_url": row[14],  # ✅ Hier auch!
+                        "distance": float(row[15]),
+                        "distance_ingredients": float(row[15]),
                         "ingredients": ingredients_list
                     })
 

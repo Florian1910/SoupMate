@@ -1,4 +1,4 @@
-# utils/helpers.py - format_search_results Funktion
+# utils/helpers.py - format_search_results MIT BILD
 def format_search_results(results):
     formatted = []
     for i, recipe in enumerate(results, 1):
@@ -10,6 +10,7 @@ ERGEBNIS {i}: {recipe['name']}
 🥗 Diät: {recipe['diet']} | 🥬 Vegan: {recipe['vegan']} | 🌱 Vegetarisch: {recipe['vegetarian']}
 ⏱️  Zeit: {recipe['total_time']}min | 🎯 Schwierigkeit: {recipe['difficulty']}/5
 💰 Preis: {recipe['price_per_serving']} | 🏆 FINAL SCORE: {recipe['score']:.4f}
+🖼️  Bild: {recipe.get('image_url', 'Kein Bild verfügbar')}
 
 📋 ZUTATEN ({len(recipe['ingredients'])}):
 """
