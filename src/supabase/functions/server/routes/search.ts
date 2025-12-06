@@ -1,4 +1,4 @@
-// server/routes/search.ts - VOLLSTÄNDIG KORRIGIERT
+// server/routes/search.ts - VOLLSTÄNDIG MIT DETAILLIERTER TERMINALAUSGABE
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { EmbeddingService } from '../services/embedding.ts';
@@ -21,7 +21,7 @@ app.use(
 
 const embeddingService = new EmbeddingService();
 
-// Allergie-Schlüsselwörter Mapping (ENGLISH - significantly expanded)
+// Allergie-Schlüsselwörter Mapping
 const allergyKeywords: Record<string, string[]> = {
   "Gluten": [
     "wheat", "rye", "barley", "oats", "spelt", "bulgur",
@@ -126,7 +126,29 @@ const allergyKeywords: Record<string, string[]> = {
   ]
 };
 
-// Funktion zur Zutaten-Filterung mit Bindewörter-Ersetzung
+// ========== HILFSFUNKTION FÜR TERMINAL-AUSGABE ==========
+function formatRecipeForTerminal(recipe: any, index: number): string {
+  return `
+==================================================
+ERGEBNIS ${index + 1}: ${recipe.name}
+==================================================
+📝 Beschreibung: ${recipe.description?.substring(0, 100)}...
+🥗 Diät: ${recipe.diet} | 🥬 Vegan: ${recipe.vegan} | 🌱 Vegetarisch: ${recipe.vegetarian}
+⏱️  Zeit: ${recipe.total_time}min | 🎯 Schwierigkeit: ${recipe.difficulty}/5
+💰 Preis: ${recipe.price_per_serving} | 🏆 FINAL SCORE: ${recipe.score?.toFixed(4) || 'N/A'}
+🖼️  Bild: ${recipe.image_url || 'Kein Bild verfügbar'}
+
+📋 ZUTATEN (${recipe.ingredients?.length || 0}):
+${recipe.ingredients?.slice(0, 5).map((ing: any) => `  • ${ing.name}: ${ing.quantity_text || ''}`).join('\n')}
+${recipe.ingredients && recipe.ingredients.length > 5 ? `  ... und ${recipe.ingredients.length - 5} weitere Zutaten\n` : ''}
+📖 ZUBEREITUNG:
+${recipe.instructions?.substring(0, 200) || 'Keine Anleitung verfügbar'}...
+
+🔗 Recipe ID: ${recipe.recipe_id}
+`;
+}
+
+// ========== ZUTATEN-FILTER FUNKTION ==========
 function filterByIngredients(recipes: any[], ingredientsFilter: string): any[] {
   if (!ingredientsFilter || ingredientsFilter.trim() === '') {
     console.log('[INGREDIENTS] No ingredients filter');
@@ -136,11 +158,8 @@ function filterByIngredients(recipes: any[], ingredientsFilter: string): any[] {
   // BINDEWÖRTER DURCH KOMMAS ERSETZEN
   const normalizedInput = ingredientsFilter
     .toLowerCase()
-    // Ersetze verschiedene Bindewörter durch Kommas
     .replace(/\b(and|und|&|with|mit|plus|also|as well as|lastly|last|\+)\b/gi, ',')
-    // Entferne überflüssige Leerzeichen um Kommas
     .replace(/\s*,\s*/g, ',')
-    // Entferne überflüssige Kommas
     .replace(/,+/g, ',')
     .replace(/^,|,$/g, '');
 
@@ -154,10 +173,8 @@ function filterByIngredients(recipes: any[], ingredientsFilter: string): any[] {
   console.log(`[INGREDIENTS] Filtering ${recipes.length} recipes for ingredients: ${searchTerms.join(', ')}`);
 
   const filtered = recipes.filter(recipe => {
-    // Sicherstellen, dass ingredients definiert ist
     const ingredientsArray = recipe.ingredients || [];
 
-    // Sammle alle Zutaten des Rezepts in einem String (lowercase für case-insensitive Suche)
     const allIngredients = ingredientsArray
       .map((ing: any) => {
         if (typeof ing === 'string') {
@@ -170,7 +187,6 @@ function filterByIngredients(recipes: any[], ingredientsFilter: string): any[] {
       .join(' ')
       .toLowerCase();
 
-    // Prüfe ob alle Suchbegriffe in den Zutaten vorkommen (AND-Suche)
     const allTermsFound = searchTerms.every(term =>
       allIngredients.includes(term.toLowerCase())
     );
@@ -191,7 +207,7 @@ function filterByIngredients(recipes: any[], ingredientsFilter: string): any[] {
   return filtered;
 }
 
-// Verbesserte Funktion zur Allergie-Filterung
+// ========== ALLERGIEN-FILTER FUNKTION ==========
 function filterByAllergies(recipes: any[], allergies: string[]): any[] {
   if (!allergies || allergies.length === 0) {
     console.log('[ALLERGY] No allergies to filter');
@@ -201,10 +217,8 @@ function filterByAllergies(recipes: any[], allergies: string[]): any[] {
   console.log(`[ALLERGY] Filtering ${recipes.length} recipes for allergies: ${allergies.join(', ')}`);
 
   const filtered = recipes.filter(recipe => {
-    // Sicherstellen, dass ingredients definiert ist
     const ingredientsArray = recipe.ingredients || [];
 
-    // Sammle alle Zutaten des Rezepts in einem String (lowercase für case-insensitive Suche)
     const allIngredients = ingredientsArray
       .map((ing: any) => {
         if (typeof ing === 'string') {
@@ -221,7 +235,6 @@ function filterByAllergies(recipes: any[], allergies: string[]): any[] {
 
     let excludedReason = '';
 
-    // Überprüft auf jede Allergie ob positiv oder negativ ist für dieses Gericht
     const hasAllergen = allergies.some(allergy => {
       const keywords = allergyKeywords[allergy];
       if (!keywords) {
@@ -229,9 +242,7 @@ function filterByAllergies(recipes: any[], allergies: string[]): any[] {
         return false;
       }
 
-      // Prüfe ob eines der Schlüsselwörter in den Zutaten vorkommt
       const matchingKeyword = keywords.find(keyword => {
-        // Erstelle ein Regex Pattern für bessere Treffer
         const pattern = new RegExp(`\\b${keyword.toLowerCase()}\\b`, 'i');
         return pattern.test(allIngredients);
       });
@@ -258,7 +269,7 @@ function filterByAllergies(recipes: any[], allergies: string[]): any[] {
   return filtered;
 }
 
-function normalizeError(err: any) {//erstellt Fehlermeldung
+function normalizeError(err: any) {
   return {
     message: err?.message ?? String(err),
     code: err?.code,
@@ -283,7 +294,6 @@ function fail(c: any, err: any, httpStatus = 500, label = 'Error') {
   );
 }
 
-
 async function getIngredientsForRecipes(recipeIds: string[]) {
   try {
     console.log('🔍 STEP 1: Searching for recipe IDs in test_recipe_ingredients:', recipeIds);
@@ -293,7 +303,6 @@ async function getIngredientsForRecipes(recipeIds: string[]) {
       return {};
     }
 
-    // SCHRITT 1: Holt alle Zutaten, die die jeweilige RecipeID aufweisen können
     const { data: recipeIngredients, error: recipeIngredientsError } = await supabase
       .from('test_recipe_ingredients')
       .select('recipe_id, ingredient_id, amount, unit, quantity_text')
@@ -314,7 +323,6 @@ async function getIngredientsForRecipes(recipeIds: string[]) {
       return {};
     }
 
-    // SCHRITT 2: Extrahiere alle ingredient_ids und entferne doppelte Einträge
     const ingredientIds = recipeIngredients.map(item => item.ingredient_id).filter(Boolean);
     const uniqueIngredientIds = [...new Set(ingredientIds)];
 
@@ -325,7 +333,6 @@ async function getIngredientsForRecipes(recipeIds: string[]) {
       return {};
     }
 
-    // SCHRITT 3: Suche in test_ingredients nach den ingredient_ids und hole die Namen
     const { data: ingredients, error: ingredientsError } = await supabase
       .from('test_ingredients')
       .select('ingredient_id, name')
@@ -346,7 +353,6 @@ async function getIngredientsForRecipes(recipeIds: string[]) {
       return {};
     }
 
-    // SCHRITT 4: Erstelle Mapping von ingredient_id zu name
     const ingredientNameMap: Record<string, string> = {};
     ingredients.forEach(ingredient => {
       ingredientNameMap[ingredient.ingredient_id] = ingredient.name;
@@ -354,7 +360,6 @@ async function getIngredientsForRecipes(recipeIds: string[]) {
 
     console.log('📋 Ingredient ID to Name mapping:', ingredientNameMap);
 
-    // SCHRITT 5: Kombiniere die Daten - Gruppiere nach recipe_id für vollständige Zutatenliste
     const ingredientsByRecipe: Record<string, any[]> = {};
 
     recipeIngredients.forEach(recipeIngredient => {
@@ -395,6 +400,7 @@ async function getIngredientsForRecipes(recipeIds: string[]) {
   }
 }
 
+// ========== ROUTES ==========
 app.post('/debug-search', async (c) => {
   try {
     const body = await c.req.json();
@@ -402,7 +408,6 @@ app.post('/debug-search', async (c) => {
 
     console.log('[DEBUG] Raw database query for:', query);
 
-    // 1. Einfache Abfrage ohne Filter
     const { data: rawRecipes, error } = await supabase
       .from('test_recipes')
       .select('recipe_id, name')
@@ -415,7 +420,6 @@ app.post('/debug-search', async (c) => {
       recipes: rawRecipes?.map(r => ({ id: r.recipe_id, name: r.name }))
     });
 
-    // 2. Prüfe auf Duplikate in den Rohdaten
     const recipeIdCounts: Record<string, number> = {};
     rawRecipes?.forEach(recipe => {
       recipeIdCounts[recipe.recipe_id] = (recipeIdCounts[recipe.recipe_id] || 0) + 1;
@@ -445,15 +449,12 @@ app.post('/debug-search', async (c) => {
   }
 });
 
-// Routes
 app.get('/health', (c) => ok(c, { ok: true, service: 'search', ts: new Date().toISOString() }));
 
-// DEBUG ROUTE - Prüfe konkrete Daten
 app.get('/debug-db', async (c) => {
   try {
     console.log('🔍 DEBUG: Checking actual data in tables...');
 
-    // 1. Hole ein paar Rezepte
     const { data: recipes, error: recipesError } = await supabase
       .from('test_recipes')
       .select('recipe_id, name')
@@ -465,7 +466,6 @@ app.get('/debug-db', async (c) => {
       console.error('❌ Error fetching recipes:', recipesError);
     }
 
-    // 2. Prüfe test_recipe_ingredients für diese Rezepte
     const recipeIds = recipes?.map(r => r.recipe_id) || [];
     let recipeIngredients = [];
 
@@ -484,7 +484,6 @@ app.get('/debug-db', async (c) => {
       }
     }
 
-    // 3. Prüfe test_ingredients
     const { data: allIngredients, error: ingredientsError } = await supabase
       .from('test_ingredients')
       .select('ingredient_id, name')
@@ -496,7 +495,6 @@ app.get('/debug-db', async (c) => {
       console.error('❌ Error fetching ingredients:', ingredientsError);
     }
 
-    // 4. Teste die komplette Zutaten-Abfrage
     let ingredientsResult = {};
     if (recipeIds.length > 0) {
       ingredientsResult = await getIngredientsForRecipes(recipeIds);
@@ -531,23 +529,21 @@ app.get('/debug', async (c) => {
   }
 });
 
-// Haupt-Suche Route - MIT ZUTATEN-FILTER
+// ========== HAUPT-SUCHE MIT PYTHON & FILTERN ==========
 app.post('/', async (c) => {
   const t0 = Date.now();
 
   try {
-    console.log('[SEARCH] Starting search request...');
+    console.log('\n' + '='.repeat(60));
+    console.log('🎯 HAUPTSUCHE MIT PYTHON-BACKEND');
+    console.log('='.repeat(60));
 
-    // Request Body parsen
     let body;
     try {
       body = await c.req.json();
       console.log('[SEARCH] Request body:', body);
     } catch (parseError) {
-      return c.json({
-        error: 'Invalid JSON in request body',
-        code: 'INVALID_JSON'
-      }, 400);
+      return c.json({ error: 'Invalid JSON' }, 400);
     }
 
     const { query, type = 'text', k = 5, filters = {} } = body ?? {};
@@ -558,166 +554,341 @@ app.post('/', async (c) => {
       workTime = [0, 120],
       totalTime = [0, 240],
       allergies = [],
-      ingredients: ingredientsFilter = ''  // <- Zutaten-Filter
+      ingredients: ingredientsFilter = ''
     } = filters;
 
-    console.log('[SEARCH] Extracted filters:', {
+    console.log('[SEARCH] Filter für diese Suche:', {
+      query,
       dietType,
       difficulty,
       workTime,
       totalTime,
-      allergies,
+      allergies: allergies.length,
       ingredientsFilter
     });
 
-    // DATENBANKABFRAGE MIT FILTERN AUFBAUEN
-    let dbQuery = supabase
-      .from('test_recipes')
-      .select('*');
+    // ========== PYTHON SEMANTISCHE SUCHE ==========
+    console.log('\n🔍 STARTE PYTHON-SEMANTISCHE SUCHE');
+    console.log('-'.repeat(40));
 
-    // Ernährungstyp Filter
-    if (dietType !== 'alle') {
-      if (dietType === 'vegan') {
-        dbQuery = dbQuery.eq('vegan', true);
-        console.log('[SEARCH] Applied vegan filter');
-      } else if (dietType === 'vegetarisch') {
-        dbQuery = dbQuery.eq('vegetarian', true);
-        console.log('[SEARCH] Applied vegetarian filter');
+    let pythonResults: any[] = [];
+    try {
+      const command = new Deno.Command("python", {
+        args: [
+          "C:/Users/nicow/Documents/SoupMate/src/supabase/functions/server/scripts/main.py",
+          query.replace(/'/g, "\\'")
+        ],
+        stdout: "piped",
+        stderr: "piped",
+      });
+
+      const { code, stdout, stderr } = await command.output();
+
+      if (code !== 0) {
+        const error = new TextDecoder().decode(stderr);
+        console.error('[PYTHON] Error:', error);
+        throw new Error(`Python search failed: ${error}`);
       }
-    }
 
-    // Schwierigkeitsgrad Filter
-    if (difficulty > 0) {
-      dbQuery = dbQuery.eq('difficulty', difficulty);
-      console.log('[SEARCH] Applied difficulty filter:', difficulty);
-    }
+      const pythonOutput = new TextDecoder().decode(stdout);
+      pythonResults = JSON.parse(pythonOutput);
 
-    // Arbeitszeit Filter
-    if (workTime && workTime.length === 2) {
-      if (workTime[0] > 0 || workTime[1] < 120) {
-        dbQuery = dbQuery.gte('work_time', workTime[0]).lte('work_time', workTime[1]);
-        console.log('[SEARCH] Applied work time filter:', workTime);
+      if (!Array.isArray(pythonResults)) {
+        throw new Error("Python did not return an array of recipes");
       }
+
+      console.log(`✅ Python lieferte ${pythonResults.length} Roh-Ergebnisse`);
+
+      // Detaillierte Python-Ergebnisse anzeigen
+      console.log('\n📊 PYTHON ERGEBNISSE MIT SCORES:');
+      console.log('-'.repeat(60));
+
+      pythonResults.forEach((recipe: any, index: number) => {
+        console.log(`\n${index + 1}. ${recipe.name}`);
+        console.log(`   Score: ${recipe.score?.toFixed(4) || 'N/A'} | Text Distanz: ${recipe.distance_text?.toFixed(4) || 'N/A'}`);
+        console.log(`   Vegan: ${recipe.vegan} | Vegetarisch: ${recipe.vegetarian}`);
+        console.log(`   Zeit: ${recipe.total_time}min | Schwierigkeit: ${recipe.difficulty}/5`);
+
+        // Score Details
+        if (recipe.base_score !== undefined) {
+          console.log(`   Base Score: ${recipe.base_score.toFixed(4)}`);
+        }
+        if (recipe.ingredient_match_score !== undefined) {
+          console.log(`   Ingredient Match Score: ${recipe.ingredient_match_score.toFixed(4)}`);
+        }
+
+        // Query Zutaten anzeigen
+        if (recipe.query_ingredients && recipe.query_ingredients.length > 0) {
+          console.log(`   Query Zutaten: ${recipe.query_ingredients.join(', ')}`);
+        }
+      });
+
+    } catch (pythonError) {
+      console.error('[PYTHON] Python search error:', pythonError);
+      console.log('[SEARCH] Fallback zu Datenbanksuche');
+
+      const { data, error } = await supabase
+        .from('test_recipes')
+        .select('*')
+        .or(`name.ilike.%${query}%,description.ilike.%${query}%`)
+        .limit(k * 2);
+
+      if (error) throw error;
+      pythonResults = data || [];
     }
 
-    // Gesamtzeit Filter
-    if (totalTime && totalTime.length === 2) {
-      if (totalTime[0] > 0 || totalTime[1] < 240) {
-        dbQuery = dbQuery.gte('total_time', totalTime[0]).lte('total_time', totalTime[1]);
-        console.log('[SEARCH] Applied total time filter:', totalTime);
-      }
-    }
+    // ========== DUPLIKATE ENTFERNEN ==========
+    console.log('\n🧹 ENTFERNE DUPLIKATE');
+    console.log('-'.repeat(40));
 
-    // Text-Suche (Hauptsuchbegriff)
-    if (type === 'text' && query) {
-      dbQuery = dbQuery.or(`name.ilike.%${query}%,description.ilike.%${query}%`);
-    }
+    const seenNames = new Set<string>();
+    const uniqueResults = [];
 
-    // Limit setzen
-    dbQuery = dbQuery.limit(k);
-
-    console.log('[SEARCH] Executing database query with filters');
-    const { data: recipes, error: dbError } = await dbQuery;
-
-    if (dbError) {
-      console.error('[SEARCH] Database error:', dbError);
-      return c.json({
-        error: 'Database query failed',
-        code: 'DATABASE_ERROR',
-        message: dbError.message
-      }, 500);
-    }
-
-    console.log('[SEARCH] Found recipes after filtering:', recipes?.length);
-
-    // EINFACHER NAMENS-BASIERTER DUPLIKAT-FILTER
-    let filteredRecipes = recipes || [];
-
-    const seenNames = new Set();
-    const uniqueRecipes = filteredRecipes.filter(recipe => {
-      if (seenNames.has(recipe.name)) {
-        console.log(`❌ DUPLICATE REMOVED: ${recipe.recipe_id} - ${recipe.name}`);
-        return false;
+    for (const recipe of pythonResults) {
+      if (!recipe.name || seenNames.has(recipe.name)) {
+        console.log(`⚠️ Überspringe Duplikat: ${recipe.name || 'Unnamed'}`);
+        continue;
       }
       seenNames.add(recipe.name);
-      return true;
-    });
+      uniqueResults.push(recipe);
+    }
 
-    console.log('[SEARCH] After removing name duplicates:', {
-      before: filteredRecipes.length,
-      after: uniqueRecipes.length,
-      removed: filteredRecipes.length - uniqueRecipes.length
-    });
+    console.log(`📊 Nach Duplikat-Entfernung: ${uniqueResults.length} eindeutige Rezepte`);
 
-    // SERVER-SEITIGE ERFOLGSMELDUNG
-    console.log(`🎯 ${uniqueRecipes.length} eindeutige Rezepte für "${query}" gefunden`);
+    // ========== ZUTATEN AUS DATENBANK HOLEN ==========
+    let recipesWithIngredients = uniqueResults;
+    if (uniqueResults.length > 0) {
+      console.log('\n🗃️ HOLE ZUTATEN AUS DATENBANK');
+      console.log('-'.repeat(40));
 
-    // Dann mit uniqueRecipes weiterarbeiten...
-    filteredRecipes = uniqueRecipes;
-
-    // Zutaten aus Datenbank holen - MUSS VOR DER ALLERGIE-FILTERUNG PASSIEREN!
-    if (filteredRecipes.length > 0) {
-      const recipeIds = filteredRecipes.map(r => r.recipe_id);
-      console.log('[SEARCH] Recipe IDs to search ingredients for:', recipeIds);
-
+      const recipeIds = uniqueResults.map(r => r.recipe_id);
       const ingredientsByRecipe = await getIngredientsForRecipes(recipeIds);
 
-      // Füge Zutaten zu den Rezepten hinzu
-      const recipesWithIngredients = filteredRecipes.map(recipe => ({
+      recipesWithIngredients = uniqueResults.map(recipe => ({
         ...recipe,
         ingredients: ingredientsByRecipe[recipe.recipe_id] || []
       }));
+    }
 
-      // Jetzt haben wir Rezepte mit Zutaten, können Filter anwenden
-      let finalRecipes = recipesWithIngredients;
+    // ========== FILTER ANWENDEN ==========
+    console.log('\n🎯 WENDE FILTER AN');
+    console.log('-'.repeat(40));
 
-      // ZUTATEN FILTER (serverseitig anwenden) - NACH DEM ZUTATEN-LADEN
-      if (ingredientsFilter && ingredientsFilter.trim() !== '' && finalRecipes.length > 0) {
-        const beforeCount = finalRecipes.length;
-        finalRecipes = filterByIngredients(finalRecipes, ingredientsFilter);
-        console.log(`[SEARCH] After ingredients filter: ${beforeCount} -> ${finalRecipes.length}`);
+    let filteredRecipes = recipesWithIngredients;
+    const filterStats = {
+      initialCount: uniqueResults.length,
+      afterIngredients: 0,
+      afterAllergies: 0,
+      afterDiet: 0,
+      afterDifficulty: 0,
+      afterTime: 0,
+      finalCount: 0
+    };
+
+    // 1. ZUTATENFILTER
+    if (ingredientsFilter && ingredientsFilter.trim() !== '' && filteredRecipes.length > 0) {
+      const beforeCount = filteredRecipes.length;
+      filteredRecipes = filterByIngredients(filteredRecipes, ingredientsFilter);
+      filterStats.afterIngredients = filteredRecipes.length;
+      console.log(`📊 Zutatenfilter: ${beforeCount} -> ${filteredRecipes.length} Rezepte`);
+    }
+
+    // 2. ALLERGIEN FILTER
+    if (allergies && allergies.length > 0 && filteredRecipes.length > 0) {
+      const beforeCount = filteredRecipes.length;
+      filteredRecipes = filterByAllergies(filteredRecipes, allergies);
+      filterStats.afterAllergies = filteredRecipes.length;
+      console.log(`📊 Allergiefilter: ${beforeCount} -> ${filteredRecipes.length} Rezepte`);
+    }
+
+    // 3. ERNÄHRUNGSTYP FILTER
+    if (dietType !== 'alle' && filteredRecipes.length > 0) {
+      const beforeCount = filteredRecipes.length;
+
+      if (dietType === 'vegan') {
+        filteredRecipes = filteredRecipes.filter(recipe => recipe.vegan === true);
+      } else if (dietType === 'vegetarisch') {
+        filteredRecipes = filteredRecipes.filter(recipe => recipe.vegetarian === true);
       }
+      filterStats.afterDiet = filteredRecipes.length;
+      console.log(`📊 Diätfilter (${dietType}): ${beforeCount} -> ${filteredRecipes.length} Rezepte`);
+    }
 
-      // ALLERGIEN FILTER (serverseitig anwenden) - NACH DEM ZUTATEN-LADEN
-      if (allergies && allergies.length > 0 && finalRecipes.length > 0) {
-        const beforeCount = finalRecipes.length;
-        finalRecipes = filterByAllergies(finalRecipes, allergies);
-        console.log(`[SEARCH] After allergy filter: ${beforeCount} -> ${finalRecipes.length}`);
+    // 4. SCHWIERIGKEITSGRAD FILTER
+    if (difficulty > 0 && filteredRecipes.length > 0) {
+      const beforeCount = filteredRecipes.length;
+      filteredRecipes = filteredRecipes.filter(recipe => recipe.difficulty === difficulty);
+      filterStats.afterDifficulty = filteredRecipes.length;
+      console.log(`📊 Schwierigkeitsfilter (${difficulty}): ${beforeCount} -> ${filteredRecipes.length} Rezepte`);
+    }
+
+    // 5. ZEITFILTER
+    if (totalTime && totalTime.length === 2 && filteredRecipes.length > 0) {
+      const beforeCount = filteredRecipes.length;
+      const [minTime, maxTime] = totalTime;
+
+      if (minTime > 0 || maxTime < 240) {
+        filteredRecipes = filteredRecipes.filter(recipe => {
+          const recipeTime = recipe.total_time || 0;
+          return recipeTime >= minTime && recipeTime <= maxTime;
+        });
       }
+      filterStats.afterTime = filteredRecipes.length;
+      console.log(`📊 Zeitfilter (${minTime}-${maxTime}min): ${beforeCount} -> ${filteredRecipes.length} Rezepte`);
+    }
 
-      const dt = Date.now() - t0;
-      console.log('[SEARCH] Search completed successfully', {
-        count: finalRecipes.length,
-        ms: dt,
-        type
-      });
+    filterStats.finalCount = filteredRecipes.length;
 
-      return c.json({
-        success: true,
-        type,
-        k,
-        query: query,
-        recipes: finalRecipes,
-        count: finalRecipes.length,
-        responseTime: dt,
-        appliedFilters: filters
-      });
+    // ========== DETAILLIERTE ERGEBNIS-AUSGABE ==========
+    console.log('\n' + '='.repeat(60));
+    console.log('🏆 FINALE ERGEBNISSE');
+    console.log('='.repeat(60));
+
+    if (filteredRecipes.length === 0) {
+      console.log('❌ Keine Rezepte gefunden, die allen Filtern entsprechen.');
     } else {
-      const dt = Date.now() - t0;
-      console.log('[SEARCH] No recipes found after filtering');
-      return c.json({
-        success: true,
-        type,
-        k,
-        query: query,
-        recipes: [],
-        count: 0,
-        responseTime: dt,
-        appliedFilters: filters
+      filteredRecipes.forEach((recipe: any, index: number) => {
+        console.log(formatRecipeForTerminal(recipe, index));
+
+        // Score Details anzeigen
+        console.log(`🔍 SCORE DETAILS für "${recipe.name}":`);
+
+        if (recipe.base_score !== undefined) {
+          console.log(`   Base Score (from Python): ${recipe.base_score.toFixed(4)}`);
+        }
+
+        if (recipe.ingredient_match_score !== undefined) {
+          console.log(`   Ingredient Match Score: ${recipe.ingredient_match_score.toFixed(4)}`);
+        }
+
+        if (recipe.distance_text !== undefined) {
+          const textSim = Math.max(0, 1.0 - recipe.distance_text / 2.0);
+          const textScore = 0.9 * textSim;
+
+          const ingSim = recipe.distance_ingredients ?
+            Math.max(0, 1.0 - recipe.distance_ingredients / 2.0) : 0;
+          const ingScore = 0.1 * ingSim;
+
+          const baseScore = textScore + ingScore;
+
+          console.log(`   Text Distance: ${recipe.distance_text.toFixed(4)}`);
+          console.log(`   Text Similarity: 1 - ${recipe.distance_text.toFixed(4)}/2 = ${textSim.toFixed(4)}`);
+          console.log(`   Text Score: 0.9 × ${textSim.toFixed(4)} = ${textScore.toFixed(4)}`);
+
+          if (recipe.distance_ingredients) {
+            console.log(`   Ingredients Distance: ${recipe.distance_ingredients.toFixed(4)}`);
+            console.log(`   Ingredients Similarity: 1 - ${recipe.distance_ingredients.toFixed(4)}/2 = ${ingSim.toFixed(4)}`);
+            console.log(`   Ingredients Score: 0.1 × ${ingSim.toFixed(4)} = ${ingScore.toFixed(4)}`);
+          }
+
+          console.log(`   Base Score (Text + Ingredients): ${baseScore.toFixed(4)}`);
+
+          if (recipe.base_score !== undefined && recipe.score !== undefined) {
+            const adjustments = recipe.score - recipe.base_score;
+            if (Math.abs(adjustments) > 0.001) {
+              console.log(`   Adjustments: ${adjustments > 0 ? '➕' : '➖'} ${Math.abs(adjustments).toFixed(4)}`);
+            }
+          }
+
+          console.log(`   Final Score: ${recipe.score?.toFixed(4) || 'N/A'}`);
+        }
+
+        // Query-Zutaten und Matches anzeigen
+        if (recipe.query_ingredients && recipe.ingredients) {
+          console.log(`   Query Zutaten: ${recipe.query_ingredients.join(', ') || 'keine'}`);
+
+          const matched = recipe.query_ingredients.filter((qIng: string) =>
+            recipe.ingredients.some((rIng: any) => {
+              const qLower = qIng.toLowerCase();
+              const rLower = rIng.name.toLowerCase();
+              return rLower.includes(qLower) || qLower.includes(rLower);
+            })
+          );
+          console.log(`   Gematchte Zutaten: ${matched.join(', ') || 'keine'} (${matched.length}/${recipe.query_ingredients.length})`);
+        }
+        console.log('');
       });
     }
 
-  } catch (err) {
+    // ========== FILTER-ZUSAMMENFASSUNG ==========
+    console.log('\n' + '='.repeat(60));
+    console.log('📊 FILTER-ZUSAMMENFASSUNG');
+    console.log('='.repeat(60));
+
+    console.log(`🔍 Suchbegriff: "${query}"`);
+    console.log(`📈 Python Roh-Ergebnisse: ${pythonResults.length}`);
+    console.log(`🧹 Nach Duplikat-Entfernung: ${uniqueResults.length}`);
+
+    if (ingredientsFilter && ingredientsFilter.trim() !== '') {
+      const excludedByIngredients = filterStats.initialCount - filterStats.afterIngredients;
+      console.log(`🥕 Zutatenfilter ("${ingredientsFilter}"): ${filterStats.afterIngredients} Rezepte (+${excludedByIngredients} ausgeschlossen)`);
+    }
+
+    if (allergies && allergies.length > 0) {
+      const excludedByAllergies = filterStats.afterIngredients - filterStats.afterAllergies;
+      console.log(`⚠️  Allergiefilter (${allergies.join(', ')}): ${filterStats.afterAllergies} Rezepte (+${excludedByAllergies} ausgeschlossen)`);
+    }
+
+    if (dietType !== 'alle') {
+      const excludedByDiet = filterStats.afterAllergies - filterStats.afterDiet;
+      console.log(`🌱 Diätfilter (${dietType}): ${filterStats.afterDiet} Rezepte (+${excludedByDiet} ausgeschlossen)`);
+    }
+
+    if (difficulty > 0) {
+      const excludedByDifficulty = filterStats.afterDiet - filterStats.afterDifficulty;
+      console.log(`⭐ Schwierigkeitsfilter (${difficulty}/5): ${filterStats.afterDifficulty} Rezepte (+${excludedByDifficulty} ausgeschlossen)`);
+    }
+
+    if (totalTime && totalTime.length === 2 && (totalTime[0] > 0 || totalTime[1] < 240)) {
+      const excludedByTime = filterStats.afterDifficulty - filterStats.afterTime;
+      console.log(`⏱️  Zeitfilter (${totalTime[0]}-${totalTime[1]}min): ${filterStats.afterTime} Rezepte (+${excludedByTime} ausgeschlossen)`);
+    }
+
+    console.log(`\n🎯 FINALE ERGEBNISSE: ${filteredRecipes.length} Rezepte`);
+
+    if (filteredRecipes.length > 0) {
+      const avgScore = filteredRecipes.reduce((sum: number, r: any) => sum + (r.score || 0), 0) / filteredRecipes.length;
+      const maxScore = Math.max(...filteredRecipes.map((r: any) => r.score || 0));
+      const minScore = Math.min(...filteredRecipes.map((r: any) => r.score || 0));
+      console.log(`📊 Score Statistik:`);
+      console.log(`   Durchschnitt: ${avgScore.toFixed(4)}`);
+      console.log(`   Bester: ${maxScore.toFixed(4)}`);
+      console.log(`   Schlechtester: ${minScore.toFixed(4)}`);
+    }
+
+    const totalExcluded = filterStats.initialCount - filterStats.finalCount;
+    console.log(`\n📉 INSGESAMT AUSGESCHLOSSEN: ${totalExcluded} von ${filterStats.initialCount} Rezepten`);
+    console.log('='.repeat(60) + '\n');
+
+    // ========== ERGEBNISSE BEGRENZEN ==========
+    const finalRecipes = filteredRecipes.slice(0, k);
+
+    const dt = Date.now() - t0;
+    console.log(`⏱️  Gesamtdauer: ${dt}ms`);
+
+    // ========== ANTWORT AN FRONTEND ==========
+    return c.json({
+      success: true,
+      type,
+      k,
+      query: query || '',
+      recipes: finalRecipes,
+      count: finalRecipes.length,
+      responseTime: dt,
+      filterSummary: {
+        pythonResults: pythonResults.length,
+        afterDeduplication: uniqueResults.length,
+        afterIngredientsFilter: filterStats.afterIngredients,
+        afterAllergyFilter: filterStats.afterAllergies,
+        afterDietFilter: filterStats.afterDiet,
+        afterDifficultyFilter: filterStats.afterDifficulty,
+        afterTimeFilter: filterStats.afterTime,
+        finalResults: filterStats.finalCount,
+        totalExcluded: totalExcluded
+      }
+    });
+
+  } catch (err: any) {
     console.error('[SEARCH] Unexpected error:', err);
     return c.json(
       {
@@ -734,7 +905,6 @@ app.get('/debug-recipe-structure', async (c) => {
   try {
     console.log('🔍 DEBUG: Checking recipe structure and diet flags...');
 
-    // Hole ein paar Rezepte mit allen Spalten
     const { data: recipes, error } = await supabase
       .from('test_recipes')
       .select('*')
@@ -747,18 +917,14 @@ app.get('/debug-recipe-structure', async (c) => {
 
     console.log('📊 Full recipe structure:', recipes);
 
-    // Prüfe speziell die Diät-Flags
     const dietInfo = recipes?.map(recipe => ({
       recipe_id: recipe.recipe_id,
       name: recipe.name,
-      // Diese Spalten sollten existieren für die Filter
       vegan: recipe.vegan,
       vegetarian: recipe.vegetarian,
-      // Falls unter anderen Namen
       is_vegan: recipe.is_vegan,
       is_vegetarian: recipe.is_vegetarian,
       diet_type: recipe.diet_type,
-      // Alle Spalten anzeigen
       all_columns: Object.keys(recipe)
     }));
 

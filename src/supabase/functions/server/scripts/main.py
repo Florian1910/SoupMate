@@ -1,22 +1,58 @@
 #!/usr/bin/env python3
-# Der zentrale Einstiegspunkt (Entry Point) für das CLI-Tool.
-
-import argparse
-import logging
 import sys
 import json
 import os
+import argparse
+import logging
 import time
 from typing import List
 
-# Importiere Module (Pfade relativ zum Ausführungsort)
-from utils.helpers import setup_logging, print_json, format_recipe_details, format_search_results
-from services.spoonacular import SpoonacularService
-from services.database import DatabaseService
-from services.search_service import EmbeddingService
+# Pfad zu deinen Modulen
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Importiere Module
+try:
+    from services.search_service import EmbeddingService
+    from services.spoonacular import SpoonacularService
+    from services.database import DatabaseService
+    from utils.helpers import setup_logging, print_json, format_recipe_details, format_search_results
+    CLI_AVAILABLE = True
+except ImportError:
+    CLI_AVAILABLE = False
+    # Für TypeScript reicht EmbeddingService
+    from services.search_service import EmbeddingService
 
 STATE_FILE = "ingest_state.json"
 
+# ====== TYPESCRIPT-MODUS (Wird von deiner Web-App aufgerufen) ======
+def typescript_mode():
+    """Wird von TypeScript Backend aufgerufen - KEINE ÄNDERUNGEN HIER!"""
+    try:
+        # Query aus den Kommandozeilenargumenten lesen
+        if len(sys.argv) > 1:
+            query = sys.argv[1]
+        else:
+            query = "tomato soup"
+
+        limit = 10
+
+        print(f"🔍 Starte Suche nach: '{query}'", file=sys.stderr)
+
+        service = EmbeddingService()
+        results = service.search_by_text(query, limit)
+
+        output = json.dumps(results, ensure_ascii=False, default=str)
+        print(output)
+
+        print(f"✅ Suche abgeschlossen. {len(results)} Ergebnisse gefunden.", file=sys.stderr)
+
+    except Exception as e:
+        print(f"❌ Fehler in typescript_mode(): {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps([]))
+
+# ====== CLI-MODUS (Für dich als Admin) ======
 def load_state():
     """Lädt den letzten Offset aus einer Datei."""
     if os.path.exists(STATE_FILE):
@@ -34,13 +70,14 @@ def save_state(offset):
         json.dump({"offset": offset}, f)
 
 def ingest_recipes(query: str = "", max_requests: int = 50):
-    """
-    Importiert Rezepte in einer Schleife (Pagination).
-    """
+    """Importiert Rezepte in einer Schleife (Pagination)."""
+    if not CLI_AVAILABLE:
+        print("❌ CLI-Funktionen nicht verfügbar. Prüfe Imports.", file=sys.stderr)
+        return
+
     spoonacular = SpoonacularService()
     db = DatabaseService()
 
-    # 1. Start-Offset laden
     current_offset = load_state()
     recipes_per_call = 100
 
@@ -48,7 +85,6 @@ def ingest_recipes(query: str = "", max_requests: int = 50):
 
     total_saved_session = 0
 
-    # 2. Schleife
     for i in range(max_requests):
         logging.info(f"--- Batch {i+1}/{max_requests} (Lade Offset {current_offset}) ---")
 
@@ -79,7 +115,7 @@ def ingest_recipes(query: str = "", max_requests: int = 50):
             total_saved_session += saved_count
             logging.info(f"✅ Batch fertig: {saved_count} Rezepte gespeichert.")
 
-            # 3. Offset erhöhen & speichern
+            # Offset erhöhen & speichern
             current_offset += recipes_per_call
             save_state(current_offset)
 
@@ -96,10 +132,8 @@ def ingest_recipes(query: str = "", max_requests: int = 50):
     logging.info(f"🎉 Session beendet. Gespeichert: {total_saved_session}")
     logging.info(f"👉 Nächster Start bei Offset: {current_offset}")
 
-
 # --- Such-Funktionen ---
-
-def search_by_text(query: str, limit: int, format_output: bool = False):
+def search_by_text_cli(query: str, limit: int, format_output: bool = False):
     embedding_service = EmbeddingService()
     try:
         results = embedding_service.search_by_text(query, limit)
@@ -111,7 +145,7 @@ def search_by_text(query: str, limit: int, format_output: bool = False):
         logging.error(f"Fehler bei Textsuche: {e}")
         sys.exit(1)
 
-def search_by_ingredients(ingredients: List[str], limit: int, format_output: bool = False):
+def search_by_ingredients_cli(ingredients: List[str], limit: int, format_output: bool = False):
     embedding_service = EmbeddingService()
     try:
         results = embedding_service.search_by_ingredients(ingredients, limit)
@@ -123,7 +157,7 @@ def search_by_ingredients(ingredients: List[str], limit: int, format_output: boo
         logging.error(f"Fehler bei Zutaten-Suche: {e}")
         sys.exit(1)
 
-def get_recipe_details(recipe_id: str):
+def get_recipe_details_cli(recipe_id: str):
     embedding_service = EmbeddingService()
     try:
         details = embedding_service.get_recipe_details(recipe_id)
@@ -135,15 +169,14 @@ def get_recipe_details(recipe_id: str):
         logging.error(f"Fehler bei Details: {e}")
         sys.exit(1)
 
+def cli_mode():
+    """CLI-Hauptfunktion für administrative Zwecke"""
+    if not CLI_AVAILABLE:
+        print("❌ CLI-Funktionen nicht verfügbar. Prüfe Imports.", file=sys.stderr)
+        sys.exit(1)
 
-# --- MAIN ---
-
-def main():
-    # 1. Standard-Logging Setup
     setup_logging()
 
-    # 2. FORCE CONSOLE OUTPUT
-    # Falls setup_logging() nur in eine Datei schreibt, erzwingen wir hier die Ausgabe.
     root_logger = logging.getLogger()
     has_stream_handler = any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers)
     if not has_stream_handler:
@@ -153,7 +186,6 @@ def main():
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
         root_logger.setLevel(logging.INFO)
-        print("DEBUG: Konsole-Logging wurde manuell aktiviert.")
 
     parser = argparse.ArgumentParser(description="SoupMate CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -185,11 +217,11 @@ def main():
         if args.command == "ingest":
             ingest_recipes(query=args.query, max_requests=args.limit_calls)
         elif args.command == "search-text":
-            search_by_text(args.q, args.k, getattr(args, 'format', False))
+            search_by_text_cli(args.q, args.k, getattr(args, 'format', False))
         elif args.command == "search-ingredients":
-            search_by_ingredients(args.ing, args.k, getattr(args, 'format', False))
+            search_by_ingredients_cli(args.ing, args.k, getattr(args, 'format', False))
         elif args.command == "details":
-            get_recipe_details(args.recipe_id)
+            get_recipe_details_cli(args.recipe_id)
 
     except KeyboardInterrupt:
         print("\nAbbruch durch Benutzer.")
@@ -199,5 +231,21 @@ def main():
         print(f"CRITICAL ERROR: {e}")
         sys.exit(1)
 
+# ====== HAUPTPROGRAMM ======
 if __name__ == "__main__":
-    main()
+    # HEURISTIK:
+    # - Wenn kein Argument: TypeScript-Modus (leerer Query)
+    # - Wenn erstes Argument mit "--" beginnt oder ein bekannter CLI-Befehl ist: CLI-Modus
+    # - Sonst: TypeScript-Modus (Query als Argument)
+
+    if len(sys.argv) == 1:
+        # Keine Argumente = TypeScript-Modus mit leerem Query
+        typescript_mode()
+    else:
+        # Prüfe ob CLI-Befehl
+        cli_commands = ["ingest", "search-text", "search-ingredients", "details"]
+        if sys.argv[1] in cli_commands:
+            cli_mode()
+        else:
+            # TypeScript-Modus mit Query als erstem Argument
+            typescript_mode()
