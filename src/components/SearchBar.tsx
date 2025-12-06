@@ -81,30 +81,28 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
         return;
       }
 
-      // 🔥 KORREKTER Payload MIT FILTERN
+      // 🔥 KORREKTER Payload MIT ALLEN FILTERN
       const payload: any = {
         k: 5,
-        type: 'text', // Immer Text-Suche, da wir über SearchBar suchen
+        type: 'text',
         query: term,
-        // 🔥 FILTER HINZUFÜGEN
-        filters: filters || {
-          dietType: "alle",
-          difficulty: 0,
-          workTime: [0, 120],
-          totalTime: [0, 240],
-          allergies: [],
-          ingredients: ""
+        filters: {
+          dietType: filters?.dietType || "alle",
+          difficulty: filters?.difficulty || 0,
+          workTime: filters?.workTime || [0, 120],
+          totalTime: filters?.totalTime || [0, 240],
+          allergies: filters?.allergies || [],
+          ingredients: filters?.ingredients || "" // WICHTIG: Zutatenfilter hier!
         }
       };
 
-      console.log('🔍 Search request with filters:', payload);
+      console.log('🔍 Search request with ALL filters:', payload);
 
       const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.search}`;
       console.debug('[Search] Request →', {
         url,
         payload,
-        hasToken: !!accessToken,
-        tokenLength: accessToken?.length
+        hasToken: !!accessToken
       });
 
       // Request an Edge Function
