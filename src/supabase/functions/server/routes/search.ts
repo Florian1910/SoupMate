@@ -575,8 +575,8 @@ app.post('/', async (c) => {
     try {
       const command = new Deno.Command("python", {
         args: [
-          "-c",
-          `import sys; sys.path.append(r'C:/Users/nicow/Documents/SoupMate/src/supabase/functions/server/scripts'); from services.search_service import EmbeddingService; s = EmbeddingService(); r = s.search_by_text('${query.replace(/'/g, "\\'")}', ${k * 3}); import json; from decimal import Decimal; print(json.dumps(r, default=lambda x: float(x) if isinstance(x, Decimal) else x))`
+          "C:\\Users\\nicow\\Documents\\SoupMate\\src\\supabase\\functions\\server\\scripts\\main.py",  // VOLLER PFAD
+          query.replace(/'/g, "\\'")
         ],
         stdout: "piped",
         stderr: "piped",
