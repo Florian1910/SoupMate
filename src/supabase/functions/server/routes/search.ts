@@ -575,7 +575,7 @@ app.post('/', async (c) => {
     try {
       const command = new Deno.Command("python", {
         args: [
-          "C:\\Users\\nicow\\Documents\\SoupMate\\src\\supabase\\functions\\server\\scripts\\main.py",  // VOLLER PFAD
+          "C:/Users/nicow/Documents/SoupMate/src/supabase/functions/server/scripts/main.py",
           query.replace(/'/g, "\\'")
         ],
         stdout: "piped",

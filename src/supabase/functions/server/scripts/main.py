@@ -10,7 +10,7 @@ from typing import List
 # Pfad zu deinen Modulen
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Alle Imports
+# Importiere Module
 try:
     from services.search_service import EmbeddingService
     from services.spoonacular import SpoonacularService
@@ -105,6 +105,7 @@ def ingest_recipes(query: str = "", max_requests: int = 50):
                     recipe = spoonacular.normalize_recipe(recipe_data)
                     db.save_recipe(recipe)
                     saved_count += 1
+                    # Kleines Feedback alle 10 Rezepte
                     if saved_count % 10 == 0:
                         print(f"   ... {saved_count} Rezepte verarbeitet ...")
                 except Exception as e:
@@ -114,6 +115,7 @@ def ingest_recipes(query: str = "", max_requests: int = 50):
             total_saved_session += saved_count
             logging.info(f"✅ Batch fertig: {saved_count} Rezepte gespeichert.")
 
+            # Offset erhöhen & speichern
             current_offset += recipes_per_call
             save_state(current_offset)
 
@@ -130,6 +132,7 @@ def ingest_recipes(query: str = "", max_requests: int = 50):
     logging.info(f"🎉 Session beendet. Gespeichert: {total_saved_session}")
     logging.info(f"👉 Nächster Start bei Offset: {current_offset}")
 
+# --- Such-Funktionen ---
 def search_by_text_cli(query: str, limit: int, format_output: bool = False):
     embedding_service = EmbeddingService()
     try:
