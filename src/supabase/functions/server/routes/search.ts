@@ -55,8 +55,6 @@ app.post('/', async (c) => {
     console.log('='.repeat(60));
 
     // ========== PYTHON SEMANTISCHE SUCHE AUFRUFEN ==========
-    const pythonScriptPath = "C:/Users/nicow/Documents/SoupMate/src/supabase/functions/server/scripts/main.py";
-
     const command = new Deno.Command("python", {
       args: [
         "-c",
@@ -95,46 +93,93 @@ app.post('/', async (c) => {
     console.log('🏆 ERGEBNISSE MIT SCORES:');
     console.log('-'.repeat(60));
 
-    pythonResults.forEach((recipe: any, index: number) => {
+    // Zähler für eindeutige Rezepte
+    const seenNames = new Set<string>();
+    const uniqueResults = [];
+
+    for (const recipe of pythonResults) {
+      if (!recipe.name || seenNames.has(recipe.name)) {
+        console.log(`⚠️ Überspringe Duplikat oder Rezept ohne Namen: ${recipe.name || 'Unnamed'}`);
+        continue;
+      }
+      seenNames.add(recipe.name);
+      uniqueResults.push(recipe);
+    }
+
+    console.log(`📊 Nach Duplikat-Entfernung: ${uniqueResults.length} eindeutige Rezepte\n`);
+
+    uniqueResults.forEach((recipe: any, index: number) => {
       console.log(formatRecipeForTerminal(recipe, index));
 
       // Zusätzliche Score-Details
       console.log(`🔍 SCORE DETAILS für "${recipe.name}":`);
+
+      // Zeige die neuen Python-Felder, falls vorhanden
+      if (recipe.base_score !== undefined) {
+        console.log(`   Base Score (from Python): ${recipe.base_score.toFixed(4)}`);
+      }
+
+      if (recipe.ingredient_match_score !== undefined) {
+        console.log(`   Ingredient Match Score: ${recipe.ingredient_match_score.toFixed(4)}`);
+      }
+
+      // Alte Berechnung nur als Referenz
       if (recipe.distance_text !== undefined) {
-        const textSim = 1.0 / (1.0 + recipe.distance_text);
-        const textScore = 0.6 * textSim;
-        const ingSim = recipe.distance_ingredients ? 1.0 / (1.0 + recipe.distance_ingredients) : 0;
-        const ingScore = 0.4 * ingSim;
+        // NEUE BEREICHUNG: 1 - distance/2 (weil max Cosine Distance = 2)
+        const textSim = Math.max(0, 1.0 - recipe.distance_text / 2.0);
+        const textScore = 0.9 * textSim;  // 0.9 statt 0.7
+
+        const ingSim = recipe.distance_ingredients ?
+          Math.max(0, 1.0 - recipe.distance_ingredients / 2.0) : 0;
+        const ingScore = 0.1 * ingSim;  // 0.1 statt 0.3
+
         const baseScore = textScore + ingScore;
 
         console.log(`   Text Distance: ${recipe.distance_text.toFixed(4)}`);
-        console.log(`   Text Similarity: 1/(1+${recipe.distance_text.toFixed(4)}) = ${textSim.toFixed(4)}`);
-        console.log(`   Text Score: 0.6 × ${textSim.toFixed(4)} = ${textScore.toFixed(4)}`);
+        console.log(`   Text Similarity: 1 - ${recipe.distance_text.toFixed(4)}/2 = ${textSim.toFixed(4)}`);
+        console.log(`   Text Score: 0.9 × ${textSim.toFixed(4)} = ${textScore.toFixed(4)}`);
 
         if (recipe.distance_ingredients) {
           console.log(`   Ingredients Distance: ${recipe.distance_ingredients.toFixed(4)}`);
-          console.log(`   Ingredients Similarity: 1/(1+${recipe.distance_ingredients.toFixed(4)}) = ${ingSim.toFixed(4)}`);
-          console.log(`   Ingredients Score: 0.4 × ${ingSim.toFixed(4)} = ${ingScore.toFixed(4)}`);
+          console.log(`   Ingredients Similarity: 1 - ${recipe.distance_ingredients.toFixed(4)}/2 = ${ingSim.toFixed(4)}`);
+          console.log(`   Ingredients Score: 0.1 × ${ingSim.toFixed(4)} = ${ingScore.toFixed(4)}`);
         }
 
         console.log(`   Base Score (Text + Ingredients): ${baseScore.toFixed(4)}`);
 
-        if (recipe.score !== undefined) {
-          const boostPenalty = recipe.score - baseScore;
-          if (Math.abs(boostPenalty) > 0.001) {
-            console.log(`   Adjustments: ${boostPenalty > 0 ? '➕' : '➖'} ${Math.abs(boostPenalty).toFixed(4)}`);
+        // Zeige Adjustments (nur wenn wir base_score haben)
+        if (recipe.base_score !== undefined && recipe.score !== undefined) {
+          const adjustments = recipe.score - recipe.base_score;
+          if (Math.abs(adjustments) > 0.001) {
+            console.log(`   Adjustments: ${adjustments > 0 ? '➕' : '➖'} ${Math.abs(adjustments).toFixed(4)}`);
           }
         }
+
+        console.log(`   Final Score: ${recipe.score?.toFixed(4) || 'N/A'}`);
+      }
+
+      // Zeige Query-Zutaten und Matches
+      if (recipe.query_ingredients && recipe.ingredients) {
+        console.log(`   Query Zutaten: ${recipe.query_ingredients.join(', ') || 'keine'}`);
+
+        const matched = recipe.query_ingredients.filter((qIng: string) =>
+          recipe.ingredients.some((rIng: any) => {
+            const qLower = qIng.toLowerCase();
+            const rLower = rIng.name.toLowerCase();
+            return rLower.includes(qLower) || qLower.includes(rLower);
+          })
+        );
+        console.log(`   Gematchte Zutaten: ${matched.join(', ') || 'keine'} (${matched.length}/${recipe.query_ingredients.length})`);
       }
       console.log('');
     });
 
     console.log('='.repeat(60));
-    console.log(`📊 ZUSAMMENFASSUNG: ${pythonResults.length} Rezepte gefunden`);
-    if (pythonResults.length > 0) {
-      const avgScore = pythonResults.reduce((sum: number, r: any) => sum + (r.score || 0), 0) / pythonResults.length;
-      const maxScore = Math.max(...pythonResults.map((r: any) => r.score || 0));
-      const minScore = Math.min(...pythonResults.map((r: any) => r.score || 0));
+    console.log(`📊 ZUSAMMENFASSUNG: ${uniqueResults.length} Rezepte gefunden`);
+    if (uniqueResults.length > 0) {
+      const avgScore = uniqueResults.reduce((sum: number, r: any) => sum + (r.score || 0), 0) / uniqueResults.length;
+      const maxScore = Math.max(...uniqueResults.map((r: any) => r.score || 0));
+      const minScore = Math.min(...uniqueResults.map((r: any) => r.score || 0));
       console.log(`   Durchschnittlicher Score: ${avgScore.toFixed(4)}`);
       console.log(`   Bester Score: ${maxScore.toFixed(4)}`);
       console.log(`   Schlechtester Score: ${minScore.toFixed(4)}`);
@@ -143,7 +188,7 @@ app.post('/', async (c) => {
 
     // ========== FILTER ANWENDEN ==========
     const { dietType, difficulty, totalTime = [0, 240] } = filters;
-    let filteredRecipes = pythonResults;
+    let filteredRecipes = uniqueResults;
 
     if (dietType && dietType !== 'alle') {
       if (dietType === 'vegan') {
@@ -165,7 +210,7 @@ app.post('/', async (c) => {
 
     // ========== ZUTATEN AUS DATENBANK HOLEN (optional) ==========
     const finalRecipes = await Promise.all(
-      filteredRecipes.slice(0, k).map(async (recipe: any) => {
+      filteredRecipes.map(async (recipe: any) => {
         try {
           // Hole zusätzliche Zutaten-Details aus Supabase
           const { data: recipeIngredients } = await supabase
@@ -208,20 +253,23 @@ app.post('/', async (c) => {
       })
     );
 
+    // Begrenze auf k Ergebnisse
+    const limitedRecipes = finalRecipes.slice(0, k);
+
     // ========== ANTWORT AN FRONTEND ==========
     return c.json({
       success: true,
       query,
-      recipes: finalRecipes,
-      count: finalRecipes.length,
-      strategy: 'semantic_embedding',
+      recipes: limitedRecipes,
+      count: limitedRecipes.length,
+      strategy: 'semantic_embedding_with_ingredient_boost',
       summary: {
-        average_score: pythonResults.length > 0 ?
-          (pythonResults.reduce((sum: number, r: any) => sum + (r.score || 0), 0) / pythonResults.length).toFixed(4) : 0,
-        best_score: pythonResults.length > 0 ?
-          Math.max(...pythonResults.map((r: any) => r.score || 0)).toFixed(4) : 0,
-        worst_score: pythonResults.length > 0 ?
-          Math.min(...pythonResults.map((r: any) => r.score || 0)).toFixed(4) : 0
+        average_score: uniqueResults.length > 0 ?
+          (uniqueResults.reduce((sum: number, r: any) => sum + (r.score || 0), 0) / uniqueResults.length).toFixed(4) : 0,
+        best_score: uniqueResults.length > 0 ?
+          Math.max(...uniqueResults.map((r: any) => r.score || 0)).toFixed(4) : 0,
+        worst_score: uniqueResults.length > 0 ?
+          Math.min(...uniqueResults.map((r: any) => r.score || 0)).toFixed(4) : 0
       }
     });
 
