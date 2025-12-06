@@ -11,10 +11,11 @@ class SpoonacularService:
         self.api_key = SPOONACULAR_API_KEY
 
     # Ruft Suppen-Rezepte von der API ab explizit nur Suppen
-    def fetch_recipes(self, query: str = "", number: int = 20) -> List[Dict[str, Any]]:
+    def fetch_recipes(self, query: str = "", number: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
         url = (
             "https://api.spoonacular.com/recipes/complexSearch"
             f"?number={number}"
+            f"&offset={offset}"
             f"&addRecipeInformation=true"
             f"&addRecipeInstructions=true"
             f"&instructionsRequired=true"
@@ -28,6 +29,7 @@ class SpoonacularService:
 
         url += f"&apiKey={self.api_key}"
 
+        logging.info(f"Spoonacular API: offset={offset}, number={number}")
         logging.info(f"Spoonacular API: dishType=soup, query='{query}', number={number}")
         response = requests.get(url, timeout=60)
         response.raise_for_status()

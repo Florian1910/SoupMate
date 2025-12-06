@@ -52,9 +52,14 @@ Führe die folgenden Python-Kommandos im `server`-Verzeichnis aus, um Rezepte zu
    cd src\supabase\functions\server
    ```
 
+### Python-Abhängigkeiten installieren
+   ```bash 
+   pip install -r requirements.txt
+   ```
+
 ### Rezepte von Spoonacular importieren
    ```bash
-   python scripts\main.py ingest --number=10
+   python scripts/main.py ingest --limit-calls 4
    ```
 
 ### Semantische Suche
@@ -77,7 +82,7 @@ SoupMate\src\supabase\functions\server\
 │   ├── import_map.json          # Import-Mappings für Deno
 │   └── environment.ts           # Umgebungsvariablen
 ├── 📁 routes
-│   ├── favorites.ts             # Endpunkte für Favoriten (Favoriten holen/anlegen/löschen)
+│   ├── favorites.ts             
 │   ├── health.ts                # Health-Check
 │   ├── recipes.ts               # Endpunkte rund um Rezepte
 │   └── search.ts                # Endpunkte für die Suche
@@ -109,7 +114,7 @@ SoupMate\src\supabase\functions\server\
 |-----------------|------------------------------|
 | **Backend (API)** | Deno + Hono Framework       |
 | **Datenbank**   | Supabase (PostgreSQL + pgvector) |
-| **Suche / KI**  | Python + FAISS + SentenceTransformers |
+| **Suche / KI**  | Python + SentenceTransformers |
 | **Frontend**    | React + TypeScript            |
 
 ---
@@ -118,7 +123,7 @@ SoupMate\src\supabase\functions\server\
 
 - **Deno** (für das Backend): [Installation](https://deno.land/)
 - **Node.js & npm** (für das Frontend): [Installation](https://nodejs.org/)
-- **Python** (für FAISS-Skripte): [Installation](https://www.python.org/)
+- **Python** [Installation](https://www.python.org/)
 
 ## 🔧 **Probleme & Lösungen**
 
