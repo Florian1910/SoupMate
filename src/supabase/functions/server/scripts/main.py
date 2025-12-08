@@ -7,7 +7,10 @@ import logging
 import time
 from typing import List
 
-# Pfad zu deinen Modulen
+# DEBUG: Welche Datei wird ausgeführt?
+print(f"🔍 Python-Skript gestartet: {__file__}", file=sys.stderr)
+print(f"🔍 Python Version: {sys.version}", file=sys.stderr)
+
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Importiere Module
@@ -26,31 +29,39 @@ STATE_FILE = "ingest_state.json"
 
 # ====== TYPESCRIPT-MODUS (Wird von deiner Web-App aufgerufen) ======
 def typescript_mode():
-    """Wird von TypeScript Backend aufgerufen - KEINE ÄNDERUNGEN HIER!"""
     try:
-        # Query aus den Kommandozeilenargumenten lesen
         if len(sys.argv) > 1:
             query = sys.argv[1]
         else:
-            query = "tomato soup"
+            query = "test"
 
         limit = 10
 
-        print(f"🔍 Starte Suche nach: '{query}'", file=sys.stderr)
+        # NUR nach stderr, nicht nach stdout!
+        print(f"🔍 START COMBINED SEARCH for: '{query}'", file=sys.stderr)
+        print(f"🔍 Limit: {limit}", file=sys.stderr)
 
         service = EmbeddingService()
-        results = service.search_by_text(query, limit)
+        results = service.search_combined(query, limit)
 
+        print(f"✅ COMBINED search completed: {len(results)} results", file=sys.stderr)
+
+        # WICHTIG: NUR JSON nach stdout!
         output = json.dumps(results, ensure_ascii=False, default=str)
-        print(output)
 
-        print(f"✅ Suche abgeschlossen. {len(results)} Ergebnisse gefunden.", file=sys.stderr)
+        # Keine zusätzlichen Ausgaben außer dem JSON!
+        sys.stdout.write(output)
+        sys.stdout.flush()
 
     except Exception as e:
-        print(f"❌ Fehler in typescript_mode(): {e}", file=sys.stderr)
+        print(f"❌ Error: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
+        # Auch Fehler als leeres JSON-Array ausgeben
         print(json.dumps([]))
+
+if __name__ == "__main__":
+    typescript_mode()
 
 # ====== CLI-MODUS (Für dich als Admin) ======
 def load_state():

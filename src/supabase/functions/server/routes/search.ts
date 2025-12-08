@@ -1,4 +1,4 @@
-// server/routes/search.ts - VOLLSTÄNDIG MIT DETAILLIERTER TERMINALAUSGABE
+// server/routes/search.ts - KORRIGIERTE VERSION MIT FIX FÜR PRICE_PER_SERVING
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { EmbeddingService } from '../services/embedding.ts';
@@ -128,6 +128,10 @@ const allergyKeywords: Record<string, string[]> = {
 
 // ========== HILFSFUNKTION FÜR TERMINAL-AUSGABE ==========
 function formatRecipeForTerminal(recipe: any, index: number): string {
+  // FIX: price_per_serving als String behandeln
+  const price = recipe.price_per_serving || 'N/A';
+  const priceStr = typeof price === 'number' ? price.toFixed(2) + '€' : String(price);
+
   return `
 ==================================================
 ERGEBNIS ${index + 1}: ${recipe.name}
@@ -135,7 +139,7 @@ ERGEBNIS ${index + 1}: ${recipe.name}
 📝 Beschreibung: ${recipe.description?.substring(0, 100)}...
 🥗 Diät: ${recipe.diet} | 🥬 Vegan: ${recipe.vegan} | 🌱 Vegetarisch: ${recipe.vegetarian}
 ⏱️  Zeit: ${recipe.total_time}min | 🎯 Schwierigkeit: ${recipe.difficulty}/5
-💰 Preis: ${recipe.price_per_serving} | 🏆 FINAL SCORE: ${recipe.score?.toFixed(4) || 'N/A'}
+💰 Preis: ${priceStr} | 🏆 FINAL SCORE: ${recipe.score?.toFixed(4) || 'N/A'}
 🖼️  Bild: ${recipe.image_url || 'Kein Bild verfügbar'}
 
 📋 ZUTATEN (${recipe.ingredients?.length || 0}):
@@ -529,13 +533,39 @@ app.get('/debug', async (c) => {
   }
 });
 
+// ========== KOMBINIERTE SCORE-AUSGABE FUNKTION ==========
+function printCombinedScoreDetails(recipe: any) {
+  console.log(`\n🔍 KOMBINIERTE SCORE DETAILS FÜR "${recipe.name}":`);
+  console.log(`   🧠 Text Score: ${recipe.text_score?.toFixed(4) || 'N/A'}`);
+  console.log(`   🥕 Ingredients Score: ${recipe.ingredients_score?.toFixed(4) || 'N/A'}`);
+  console.log(`   🔗 Combined Score: ${recipe.combined_score?.toFixed(4) || 'N/A'}`);
+  console.log(`   🏆 Final Score: ${recipe.score?.toFixed(4) || 'N/A'}`);
+
+  // Berechnungsdetails anzeigen
+  if (recipe.text_score !== undefined && recipe.ingredients_score !== undefined) {
+    const weightedText = recipe.text_score * 0.9;
+    const weightedIngredients = recipe.ingredients_score * 0.1;
+    console.log(`   📐 Berechnung: (${recipe.text_score.toFixed(4)} × 0.9) + (${recipe.ingredients_score.toFixed(4)} × 0.1)`);
+    console.log(`                = ${weightedText.toFixed(4)} + ${weightedIngredients.toFixed(4)}`);
+    console.log(`                = ${(weightedText + weightedIngredients).toFixed(4)}`);
+
+    // Prüfen ob Combined Score mit Berechnung übereinstimmt
+    if (recipe.combined_score !== undefined) {
+      const diff = Math.abs(recipe.combined_score - (weightedText + weightedIngredients));
+      if (diff > 0.0001) {
+        console.log(`   ⚠️  Hinweis: Combined Score (${recipe.combined_score.toFixed(4)}) weicht von Berechnung ab`);
+      }
+    }
+  }
+}
+
 // ========== HAUPT-SUCHE MIT PYTHON & FILTERN ==========
 app.post('/', async (c) => {
   const t0 = Date.now();
 
   try {
     console.log('\n' + '='.repeat(60));
-    console.log('🎯 HAUPTSUCHE MIT PYTHON-BACKEND');
+    console.log('🎯 HAUPTSUCHE MIT PYTHON CLEAN_SEARCH');
     console.log('='.repeat(60));
 
     let body;
@@ -568,60 +598,80 @@ app.post('/', async (c) => {
     });
 
     // ========== PYTHON SEMANTISCHE SUCHE ==========
-    console.log('\n🔍 STARTE PYTHON-SEMANTISCHE SUCHE');
-    console.log('-'.repeat(40));
+    console.log(`\n🐍 STARTE PYTHON CLEAN_SEARCH (KOMBINIERTE SUCHE)`);
+    console.log(`🔍 Query: "${query}"`);
+    console.log(`📁 Python Skript: clean_search.py`);
+    console.log(`🎯 Methode: 90% Text-Ähnlichkeit + 10% Zutaten-Ähnlichkeit`);
 
     let pythonResults: any[] = [];
+
     try {
+      // ABSOLUTER PFAD ZUM PYTHON-SKRIPT
+      const pythonScriptPath = 'C:\\Users\\nicow\\Documents\\SoupMate\\src\\supabase\\functions\\server\\scripts\\clean_search.py';
+      console.log(`📂 Python script path: ${pythonScriptPath}`);
+
       const command = new Deno.Command("python", {
         args: [
-          "C:/Users/nicow/Documents/SoupMate/src/supabase/functions/server/scripts/main.py",
-          query.replace(/'/g, "\\'")
+          pythonScriptPath,
+          query
         ],
         stdout: "piped",
-        stderr: "piped",
+        stderr: "piped"
       });
 
       const { code, stdout, stderr } = await command.output();
 
+      // Debug-Ausgabe
+      const stderrText = new TextDecoder().decode(stderr);
+      const stdoutText = new TextDecoder().decode(stdout);
+
+      // Python Debug-Output zeigen
+      if (stderrText.includes('🔍') || stderrText.includes('✅') || stderrText.includes('❌')) {
+        console.log(`\n🐍 PYTHON OUTPUT (stderr):`);
+        console.log(stderrText);
+      }
+
+      console.log(`[PYTHON] stdout length: ${stdoutText.length} chars`);
+
       if (code !== 0) {
-        const error = new TextDecoder().decode(stderr);
-        console.error('[PYTHON] Error:', error);
-        throw new Error(`Python search failed: ${error}`);
+        console.error('[PYTHON] Error code:', code);
+        console.error('[PYTHON] stderr:', stderrText);
+        throw new Error(`Python search failed: ${stderrText}`);
       }
 
-      const pythonOutput = new TextDecoder().decode(stdout);
-      pythonResults = JSON.parse(pythonOutput);
+      // Überprüfe ob die Ausgabe gültiges JSON ist
+      console.log(`[PYTHON] First 500 chars of stdout:\n${stdoutText.substring(0, 500)}`);
 
-      if (!Array.isArray(pythonResults)) {
-        throw new Error("Python did not return an array of recipes");
+      // Versuche JSON zu parsen
+      try {
+        pythonResults = JSON.parse(stdoutText);
+        console.log(`✅ Python clean_search lieferte ${pythonResults.length} Roh-Ergebnisse (COMBINED Search)`);
+
+        // Zeige detaillierte Score-Informationen von Python
+        console.log('\n📊 PYTHON SCORE DETAILS VON CLEAN_SEARCH:');
+        console.log('-'.repeat(50));
+
+        pythonResults.slice(0, Math.min(3, pythonResults.length)).forEach((recipe: any, index: number) => {
+          console.log(`\n${index + 1}. ${recipe.name?.substring(0, 40)}...`);
+          console.log(`   🧠 Text Score: ${recipe.text_score?.toFixed(4) || 'N/A'}`);
+          console.log(`   🥕 Ingredients Score: ${recipe.ingredients_score?.toFixed(4) || 'N/A'}`);
+          console.log(`   🔗 Combined Score: ${recipe.combined_score?.toFixed(4) || 'N/A'}`);
+          console.log(`   🏆 Final Score (von Python): ${recipe.score?.toFixed(4) || 'N/A'}`);
+        });
+
+      } catch (parseError: any) {
+        console.error('[PYTHON] JSON parse error:', parseError.message);
+
+        // Versuche, nur den JSON-Teil zu extrahieren (falls zusätzlicher Text vorhanden ist)
+        const jsonMatch = stdoutText.match(/\[.*\]|\{.*\}/s);
+        if (jsonMatch) {
+          console.log('[PYTHON] Trying to extract JSON from output...');
+          pythonResults = JSON.parse(jsonMatch[0]);
+          console.log(`[PYTHON] Extracted ${pythonResults.length} Ergebnisse`);
+        } else {
+          throw parseError;
+        }
       }
-
-      console.log(`✅ Python lieferte ${pythonResults.length} Roh-Ergebnisse`);
-
-      // Detaillierte Python-Ergebnisse anzeigen
-      console.log('\n📊 PYTHON ERGEBNISSE MIT SCORES:');
-      console.log('-'.repeat(60));
-
-      pythonResults.forEach((recipe: any, index: number) => {
-        console.log(`\n${index + 1}. ${recipe.name}`);
-        console.log(`   Score: ${recipe.score?.toFixed(4) || 'N/A'} | Text Distanz: ${recipe.distance_text?.toFixed(4) || 'N/A'}`);
-        console.log(`   Vegan: ${recipe.vegan} | Vegetarisch: ${recipe.vegetarian}`);
-        console.log(`   Zeit: ${recipe.total_time}min | Schwierigkeit: ${recipe.difficulty}/5`);
-
-        // Score Details
-        if (recipe.base_score !== undefined) {
-          console.log(`   Base Score: ${recipe.base_score.toFixed(4)}`);
-        }
-        if (recipe.ingredient_match_score !== undefined) {
-          console.log(`   Ingredient Match Score: ${recipe.ingredient_match_score.toFixed(4)}`);
-        }
-
-        // Query Zutaten anzeigen
-        if (recipe.query_ingredients && recipe.query_ingredients.length > 0) {
-          console.log(`   Query Zutaten: ${recipe.query_ingredients.join(', ')}`);
-        }
-      });
 
     } catch (pythonError) {
       console.error('[PYTHON] Python search error:', pythonError);
@@ -633,8 +683,25 @@ app.post('/', async (c) => {
         .or(`name.ilike.%${query}%,description.ilike.%${query}%`)
         .limit(k * 2);
 
-      if (error) throw error;
-      pythonResults = data || [];
+      if (error) {
+        console.error('[SEARCH] Database fallback error:', error);
+        pythonResults = [];
+      } else {
+        pythonResults = data || [];
+      }
+    }
+
+    // ========== STATISTIK ÜBER PYTHON SCORES ==========
+    if (pythonResults.length > 0) {
+      const avgText = pythonResults.reduce((sum: number, r: any) => sum + (r.text_score || 0), 0) / pythonResults.length;
+      const avgIngredients = pythonResults.reduce((sum: number, r: any) => sum + (r.ingredients_score || 0), 0) / pythonResults.length;
+      const avgCombined = pythonResults.reduce((sum: number, r: any) => sum + (r.combined_score || 0), 0) / pythonResults.length;
+
+      console.log('\n📊 PYTHON SCORE STATISTIK:');
+      console.log(`   Text Score Durchschnitt: ${avgText.toFixed(4)}`);
+      console.log(`   Ingredients Score Durchschnitt: ${avgIngredients.toFixed(4)}`);
+      console.log(`   Combined Score Durchschnitt: ${avgCombined.toFixed(4)}`);
+      console.log(`   🎯 Suchmethode: clean_search.py (Kombinierte Suche)`);
     }
 
     // ========== DUPLIKATE ENTFERNEN ==========
@@ -649,11 +716,21 @@ app.post('/', async (c) => {
         console.log(`⚠️ Überspringe Duplikat: ${recipe.name || 'Unnamed'}`);
         continue;
       }
+
+      // Stelle sicher, dass alle Score-Felder vorhanden sind
+      const enrichedRecipe = {
+        ...recipe,
+        text_score: recipe.text_score || recipe.score || 0,
+        ingredients_score: recipe.ingredients_score || 0,
+        combined_score: recipe.combined_score || recipe.score || 0,
+        _search_source: 'python_clean_search'
+      };
+
       seenNames.add(recipe.name);
-      uniqueResults.push(recipe);
+      uniqueResults.push(enrichedRecipe);
     }
 
-    console.log(`📊 Nach Duplikat-Entfernung: ${uniqueResults.length} eindeutige Rezepte`);
+    console.log(`📊 Nach Duplikat-Entfernung: ${uniqueResults.length} eindeutige Rezepte mit Python-Scores`);
 
     // ========== ZUTATEN AUS DATENBANK HOLEN ==========
     let recipesWithIngredients = uniqueResults;
@@ -741,82 +818,71 @@ app.post('/', async (c) => {
 
     // ========== DETAILLIERTE ERGEBNIS-AUSGABE ==========
     console.log('\n' + '='.repeat(60));
-    console.log('🏆 FINALE ERGEBNISSE');
+    console.log('🏆 FINALE ERGEBNISSE MIT KOMBINIERTEN SCORES');
     console.log('='.repeat(60));
 
     if (filteredRecipes.length === 0) {
       console.log('❌ Keine Rezepte gefunden, die allen Filtern entsprechen.');
     } else {
       filteredRecipes.forEach((recipe: any, index: number) => {
-        console.log(formatRecipeForTerminal(recipe, index));
+        console.log(`\n` + '='.repeat(50));
+        console.log(`ERGEBNIS ${index + 1}: ${recipe.name}`);
+        console.log('='.repeat(50));
 
-        // Score Details anzeigen
-        console.log(`🔍 SCORE DETAILS für "${recipe.name}":`);
+        console.log(`📝 Beschreibung: ${recipe.description?.substring(0, 100)}...`);
+        console.log(`🥗 Diät: ${recipe.diets?.join(' | ') || recipe.diet || 'N/A'}`);
+        console.log(`⏱️  Zeit: ${recipe.total_time}min | 🎯 Schwierigkeit: ${recipe.difficulty}/5`);
 
-        if (recipe.base_score !== undefined) {
-          console.log(`   Base Score (from Python): ${recipe.base_score.toFixed(4)}`);
-        }
-
-        if (recipe.ingredient_match_score !== undefined) {
-          console.log(`   Ingredient Match Score: ${recipe.ingredient_match_score.toFixed(4)}`);
-        }
-
-        if (recipe.distance_text !== undefined) {
-          const textSim = Math.max(0, 1.0 - recipe.distance_text / 2.0);
-          const textScore = 0.9 * textSim;
-
-          const ingSim = recipe.distance_ingredients ?
-            Math.max(0, 1.0 - recipe.distance_ingredients / 2.0) : 0;
-          const ingScore = 0.1 * ingSim;
-
-          const baseScore = textScore + ingScore;
-
-          console.log(`   Text Distance: ${recipe.distance_text.toFixed(4)}`);
-          console.log(`   Text Similarity: 1 - ${recipe.distance_text.toFixed(4)}/2 = ${textSim.toFixed(4)}`);
-          console.log(`   Text Score: 0.9 × ${textSim.toFixed(4)} = ${textScore.toFixed(4)}`);
-
-          if (recipe.distance_ingredients) {
-            console.log(`   Ingredients Distance: ${recipe.distance_ingredients.toFixed(4)}`);
-            console.log(`   Ingredients Similarity: 1 - ${recipe.distance_ingredients.toFixed(4)}/2 = ${ingSim.toFixed(4)}`);
-            console.log(`   Ingredients Score: 0.1 × ${ingSim.toFixed(4)} = ${ingScore.toFixed(4)}`);
+        // FIX: price_per_serving korrekt behandeln
+        const price = recipe.price_per_serving;
+        let priceDisplay = 'N/A';
+        if (price !== undefined && price !== null) {
+          if (typeof price === 'number') {
+            priceDisplay = price.toFixed(2) + '€';
+          } else {
+            // Wenn es ein String ist, direkt anzeigen (enthält bereits €-Zeichen)
+            priceDisplay = String(price);
           }
+        }
+        console.log(`💰 Preis: ${priceDisplay}`);
 
-          console.log(`   Base Score (Text + Ingredients): ${baseScore.toFixed(4)}`);
+        console.log(`🏆 FINAL SCORE: ${recipe.score?.toFixed(4) || 'N/A'}`);
+        console.log(`🖼️  Bild: ${recipe.image_url || recipe.image || 'N/A'}`);
 
-          if (recipe.base_score !== undefined && recipe.score !== undefined) {
-            const adjustments = recipe.score - recipe.base_score;
-            if (Math.abs(adjustments) > 0.001) {
-              console.log(`   Adjustments: ${adjustments > 0 ? '➕' : '➖'} ${Math.abs(adjustments).toFixed(4)}`);
-            }
+        // Zutaten anzeigen
+        if (recipe.ingredients && recipe.ingredients.length > 0) {
+          console.log(`\n📋 ZUTATEN (${recipe.ingredients.length}):`);
+          recipe.ingredients.slice(0, 5).forEach((ing: any) => {
+            console.log(`  • ${ing.name}: ${ing.amount} ${ing.unit || ''} (${ing.quantity_text || ''})`);
+          });
+          if (recipe.ingredients.length > 5) {
+            console.log(`  ... und ${recipe.ingredients.length - 5} weitere Zutaten`);
           }
-
-          console.log(`   Final Score: ${recipe.score?.toFixed(4) || 'N/A'}`);
         }
 
-        // Query-Zutaten und Matches anzeigen
-        if (recipe.query_ingredients && recipe.ingredients) {
-          console.log(`   Query Zutaten: ${recipe.query_ingredients.join(', ') || 'keine'}`);
-
-          const matched = recipe.query_ingredients.filter((qIng: string) =>
-            recipe.ingredients.some((rIng: any) => {
-              const qLower = qIng.toLowerCase();
-              const rLower = rIng.name.toLowerCase();
-              return rLower.includes(qLower) || qLower.includes(rLower);
-            })
-          );
-          console.log(`   Gematchte Zutaten: ${matched.join(', ') || 'keine'} (${matched.length}/${recipe.query_ingredients.length})`);
+        // Zubereitung anzeigen
+        if (recipe.instructions) {
+          console.log(`\n📖 ZUBEREITUNG:`);
+          const shortInstructions = recipe.instructions.substring(0, 200);
+          console.log(`${shortInstructions}${recipe.instructions.length > 200 ? '...' : ''}`);
         }
+
+        console.log(`\n🔗 Recipe ID: ${recipe.id || recipe.recipe_id || 'N/A'}`);
+
+        // KOMBINIERTE SCORE DETAILS anzeigen
+        printCombinedScoreDetails(recipe);
+
         console.log('');
       });
     }
 
-    // ========== FILTER-ZUSAMMENFASSUNG ==========
+    // ========== ERWEITERTE FILTER-ZUSAMMENFASSUNG ==========
     console.log('\n' + '='.repeat(60));
-    console.log('📊 FILTER-ZUSAMMENFASSUNG');
+    console.log('📊 ERWEITERTE FILTER-ZUSAMMENFASSUNG');
     console.log('='.repeat(60));
 
     console.log(`🔍 Suchbegriff: "${query}"`);
-    console.log(`📈 Python Roh-Ergebnisse: ${pythonResults.length}`);
+    console.log(`📈 Python Roh-Ergebnisse (clean_search.py): ${pythonResults.length}`);
     console.log(`🧹 Nach Duplikat-Entfernung: ${uniqueResults.length}`);
 
     if (ingredientsFilter && ingredientsFilter.trim() !== '') {
@@ -850,14 +916,34 @@ app.post('/', async (c) => {
       const avgScore = filteredRecipes.reduce((sum: number, r: any) => sum + (r.score || 0), 0) / filteredRecipes.length;
       const maxScore = Math.max(...filteredRecipes.map((r: any) => r.score || 0));
       const minScore = Math.min(...filteredRecipes.map((r: any) => r.score || 0));
-      console.log(`📊 Score Statistik:`);
+      console.log(`📊 FINALE SCORE STATISTIK:`);
       console.log(`   Durchschnitt: ${avgScore.toFixed(4)}`);
       console.log(`   Bester: ${maxScore.toFixed(4)}`);
       console.log(`   Schlechtester: ${minScore.toFixed(4)}`);
+
+      // Zusätzlich: Combined Score Statistiken
+      const avgText = filteredRecipes.reduce((sum: number, r: any) => sum + (r.text_score || 0), 0) / filteredRecipes.length;
+      const avgIngredients = filteredRecipes.reduce((sum: number, r: any) => sum + (r.ingredients_score || 0), 0) / filteredRecipes.length;
+      const avgCombined = filteredRecipes.reduce((sum: number, r: any) => sum + (r.combined_score || 0), 0) / filteredRecipes.length;
+
+      console.log(`📊 KOMBINIERTE SCORE STATISTIK:`);
+      console.log(`   Text Score Durchschnitt: ${avgText.toFixed(4)}`);
+      console.log(`   Ingredients Score Durchschnitt: ${avgIngredients.toFixed(4)}`);
+      console.log(`   Combined Score Durchschnitt: ${avgCombined.toFixed(4)}`);
     }
 
     const totalExcluded = filterStats.initialCount - filterStats.finalCount;
     console.log(`\n📉 INSGESAMT AUSGESCHLOSSEN: ${totalExcluded} von ${filterStats.initialCount} Rezepten`);
+    console.log('='.repeat(60));
+
+    // ========== PYTHON SUCHMETHODE INFO ==========
+    console.log('\n' + '='.repeat(60));
+    console.log('🐍 PYTHON CLEAN_SEARCH INFORMATION');
+    console.log('='.repeat(60));
+    console.log(`✅ Suchmethode aktiviert: clean_search.py`);
+    console.log(`📊 Algorithmus: Kombinierte Text- und Zutaten-Suche`);
+    console.log(`⚖️  Gewichtung: 90% Text-Ähnlichkeit + 10% Zutaten-Ähnlichkeit`);
+    console.log(`🎯 Ziel: Höchste Relevanz durch semantische Text- und Zutaten-Ähnlichkeit`);
     console.log('='.repeat(60) + '\n');
 
     // ========== ERGEBNISSE BEGRENZEN ==========
@@ -865,6 +951,8 @@ app.post('/', async (c) => {
 
     const dt = Date.now() - t0;
     console.log(`⏱️  Gesamtdauer: ${dt}ms`);
+    console.log(`📤 Antwort an Frontend: ${finalRecipes.length} Rezepte`);
+    console.log(`--> POST /search 200 ${Math.floor(dt/1000)}s`);
 
     // ========== ANTWORT AN FRONTEND ==========
     return c.json({
@@ -885,6 +973,11 @@ app.post('/', async (c) => {
         afterTimeFilter: filterStats.afterTime,
         finalResults: filterStats.finalCount,
         totalExcluded: totalExcluded
+      },
+      searchMethod: 'python_clean_search_combined',
+      scoreWeighting: {
+        text: 0.9,
+        ingredients: 0.1
       }
     });
 
@@ -937,6 +1030,46 @@ app.get('/debug-recipe-structure', async (c) => {
   } catch (err) {
     console.error('❌ Debug error:', err);
     return c.json({ error: String(err) }, 500);
+  }
+});
+
+// ========== TEST-ENDPUNKT FÜR PYTHON-AUFRUF ==========
+app.post('/test-python', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { query } = body;
+
+    console.log(`[TEST] Testing Python with query: "${query}"`);
+
+    const pythonScriptPath = 'C:\\Users\\nicow\\Documents\\SoupMate\\src\\supabase\\functions\\server\\scripts\\clean_search.py';
+
+    const command = new Deno.Command("python", {
+      args: [pythonScriptPath, query],
+      stdout: "piped",
+      stderr: "piped"
+    });
+
+    const { code, stdout, stderr } = await command.output();
+    const stdoutText = new TextDecoder().decode(stdout);
+    const stderrText = new TextDecoder().decode(stderr);
+
+    return c.json({
+      success: code === 0,
+      code,
+      stdout_length: stdoutText.length,
+      stderr: stderrText,
+      stdout_preview: stdoutText.substring(0, 1000),
+      try_parse: (() => {
+        try {
+          return { success: true, data: JSON.parse(stdoutText) };
+        } catch (e: any) {
+          return { success: false, error: e.message };
+        }
+      })()
+    });
+
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
   }
 });
 
