@@ -27,118 +27,88 @@ class EmbeddingService:
                 self._all_ingredients_cache = []
         return self._all_ingredients_cache
 
-    def _extract_ingredients_simple(self, query: str) -> List[Tuple[str, float]]:
-        """Einfache Extraktion von Zutaten - nur exakte Matches"""
-        query_lower = query.lower()
-        all_ingredients = self._get_all_ingredients()
-
-        # Einfache Suche: Prüfe ob Zutat als Wort im Query vorkommt
-        found = []
-        for ingredient in all_ingredients:
-            if len(ingredient) < 3:
-                continue
-
-            # Suche nach ganzen Wörtern
-            pattern = r'\b' + re.escape(ingredient) + r'\b'
-            if re.search(pattern, query_lower):
-                position = query_lower.find(ingredient)
-                found.append((ingredient, position))
-
-        # Entferne Duplikate
-        unique_ingredients = []
-        seen = set()
-        for ingredient, position in found:
-            if ingredient not in seen:
-                seen.add(ingredient)
-                unique_ingredients.append((ingredient, position))
-
-        # Exponentielle Gewichtung
-        weighted = []
-        for i, (ingredient, _) in enumerate(unique_ingredients):
-            weight = math.pow(2/3, i)
-            weighted.append((ingredient, weight))
-
-        print(f"🔍 Einfache Zutatenextraktion: {weighted}", file=sys.stderr)
-        return weighted
-
     def search_by_text(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        print(f"\n=== START search_by_text ===", file=sys.stderr)
+        print(f"\n=== DEBUG search_by_text ===", file=sys.stderr)
         print(f"Query: '{query}'", file=sys.stderr)
 
         try:
-            # 1. Einfache Zutatenextraktion
-            weighted_ingredients = self._extract_ingredients_simple(query)
+            # DEBUG 1: Datenbank prüfen
+            with self.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    # Prüfe Rezept-Zahl
+                    cur.execute(f"SELECT COUNT(*) FROM {TABLE_RECIPES}")
+                    recipe_count = cur.fetchone()[0]
+                    print(f"🔍 Rezepte in DB: {recipe_count}", file=sys.stderr)
 
-            # 2. Vektor-Suche (ohne komplexe Filter)
-            query_vector = embedding_model.vector_to_literal(embedding_model.embed(query))
+                    # Prüfe ob Embeddings existieren
+                    cur.execute(f"""
+                        SELECT COUNT(*) 
+                        FROM {TABLE_RECIPES} 
+                        WHERE text_embedding IS NOT NULL 
+                        AND ingredients_embedding IS NOT NULL
+                    """)
+                    embedding_count = cur.fetchone()[0]
+                    print(f"🔍 Rezepte mit Embeddings: {embedding_count}", file=sys.stderr)
 
+            if recipe_count == 0:
+                print("❌ Keine Rezepte in der Datenbank!", file=sys.stderr)
+                return []
+
+            if embedding_count == 0:
+                print("❌ Keine Embeddings in der Datenbank!", file=sys.stderr)
+                # Fallback zu einfacher Textsuche
+                return self._fallback_text_search(query, limit)
+
+            # 1. Erstelle Vektor für Query
+            print(f"🔍 Erstelle Embedding für Query...", file=sys.stderr)
+            try:
+                query_embedding = embedding_model.embed(query)
+                print(f"🔍 Embedding Dimension: {len(query_embedding)}", file=sys.stderr)
+                query_vector = embedding_model.vector_to_literal(query_embedding)
+                print(f"🔍 Vektor erstellt (Länge: {len(query_vector)})", file=sys.stderr)
+            except Exception as e:
+                print(f"❌ Fehler beim Erstellen des Embeddings: {e}", file=sys.stderr)
+                return []
+
+            # 2. Einfache Vektor-Suche (ohne Optimierung)
             sql = f"""
-                WITH q AS (SELECT %s::vector AS qv)
                 SELECT
                     r.recipe_id, r.name, r.description, r.instructions,
                     r.diet, r.vegan, r.vegetarian, r.total_time, r.difficulty,
                     r.calories, r.protein, r.carbohydrates, r.fat, r.price_per_serving,
                     r.image_url,
-                    (r.text_embedding <-> q.qv) AS d_text,
-                    (r.ingredients_embedding <-> q.qv) AS d_ing,
-                    -- Einfacher Score: 1 - (Abstand/2)
-                    1.0 - (r.text_embedding <-> q.qv) / 2.0 AS base_score
+                    1.0 - (r.text_embedding <-> %s::vector) / 2.0 AS similarity
                 FROM {TABLE_RECIPES} r
-                CROSS JOIN q
-                WHERE 1=1
-                ORDER BY base_score DESC
+                WHERE r.text_embedding IS NOT NULL
+                ORDER BY r.text_embedding <-> %s::vector
                 LIMIT %s
             """
 
-            expanded_limit = max(50, limit * 10)
+            expanded_limit = max(20, limit * 3)
 
             with self.db.get_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(sql, [query_vector, expanded_limit])
+                    print(f"🔍 Führe SQL-Abfrage aus mit limit={expanded_limit}...", file=sys.stderr)
+                    cur.execute(sql, [query_vector, query_vector, expanded_limit])
                     rows = cur.fetchall()
 
-                    print(f"✅ {len(rows)} Rezepte gefunden", file=sys.stderr)
+                    print(f"✅ {len(rows)} Roh-Ergebnisse von DB", file=sys.stderr)
+
+                    if len(rows) == 0:
+                        print("❌ Keine Ergebnisse von SQL-Abfrage", file=sys.stderr)
+                        return []
 
                     results = []
-                    for row in rows:
+                    for idx, row in enumerate(rows):
                         recipe_id = row[0]
+
+                        # Zeige Debug-Info für die ersten 3 Ergebnisse
+                        if idx < 3:
+                            print(f"🔍 Ergebnis {idx+1}: '{row[1]}', Similarity: {row[15]:.4f}", file=sys.stderr)
+
                         ingredients = self._get_recipe_ingredients(cur, recipe_id)
 
-                        base_score = float(row[17]) if row[17] is not None else 0.0
-
-                        # ZUTATEN-MATCH-BOOST (vereinfacht)
-                        ingredient_match_score = 0
-                        if weighted_ingredients and ingredients:
-                            recipe_ingredient_names = [ing["name"].lower() for ing in ingredients]
-
-                            matched_count = 0
-                            for query_ingredient, _ in weighted_ingredients:
-                                # Einfaches Matching: Prüfe ob die Zutat im Rezept vorkommt
-                                query_ing_lower = query_ingredient.lower()
-                                found = False
-
-                                for recipe_ing in recipe_ingredient_names:
-                                    # Entferne 's' am Ende für einfache Pluralerkennung
-                                    recipe_base = recipe_ing.rstrip('s')
-                                    query_base = query_ing_lower.rstrip('s')
-
-                                    if query_ing_lower in recipe_ing or recipe_ing in query_ing_lower:
-                                        found = True
-                                        break
-                                    elif query_base == recipe_base:
-                                        found = True
-                                        break
-
-                                if found:
-                                    matched_count += 1
-
-                            total_query_ingredients = len(weighted_ingredients)
-                            if total_query_ingredients > 0:
-                                ingredient_match_score = matched_count / total_query_ingredients
-
-                        # FINALER SCORE: 70% Base Score + 30% Ingredient Match
-                        final_score = (base_score * 0.7) + (ingredient_match_score * 0.3)
-                        final_score = max(0, min(1, final_score))
+                        similarity = float(row[15]) if row[15] is not None else 0.0
 
                         results.append({
                             "recipe_id": recipe_id,
@@ -156,17 +126,9 @@ class EmbeddingService:
                             "fat": row[12],
                             "price_per_serving": f"{row[13]}€" if row[13] is not None else None,
                             "image_url": row[14],
-                            "distance_text": float(row[15]) if row[15] is not None else None,
-                            "distance_ingredients": float(row[16]) if row[16] is not None else None,
-                            "score": final_score,
-                            "base_score": base_score,
-                            "ingredient_match_score": ingredient_match_score,
-                            "ingredients": ingredients,
-                            "query_ingredients": [ing for ing, _ in weighted_ingredients]
+                            "score": similarity,
+                            "ingredients": ingredients
                         })
-
-                    # Sortieren nach finalem Score
-                    results.sort(key=lambda x: x["score"], reverse=True)
 
                     print(f"🎯 {len(results[:limit])} finale Ergebnisse", file=sys.stderr)
                     return results[:limit]
@@ -177,92 +139,195 @@ class EmbeddingService:
             traceback.print_exc(file=sys.stderr)
             return []
 
-    def search_by_ingredients(self, ingredients: List[str], limit: int = 10) -> List[Dict[str, Any]]:
-        if not ingredients:
+
+    def search_by_text_for_ingredients(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        print(f"\n=== START SEMANTISCHE ZUTATEN-SUCHE ===", file=sys.stderr)
+        print(f"🔍 Query: '{query}'", file=sys.stderr)
+        print(f"🔍 Suche nach ZUTATEN-Ähnlichkeit", file=sys.stderr)
+
+        try:
+            # 1. Erstelle Vektor für den Query (GLEICH wie in search_by_text)
+            print(f"🔍 Erstelle Embedding für Query...", file=sys.stderr)
+            query_embedding = embedding_model.embed(query)
+            query_vector = embedding_model.vector_to_literal(query_embedding)
+            print(f"✅ Query-Vektor erstellt", file=sys.stderr)
+
+            # 2. SQL-Abfrage - aber mit ingredients_embedding!
+            sql = f"""
+                SELECT
+                    r.recipe_id,
+                    r.name,
+                    r.description,
+                    r.instructions,
+                    r.diet,
+                    r.vegan,
+                    r.vegetarian,
+                    r.total_time,
+                    r.difficulty,
+                    r.calories,
+                    r.protein,
+                    r.carbohydrates,
+                    r.fat,
+                    r.price_per_serving,
+                    r.image_url,
+                    -- Cosine Distance zu ZUTATEN-Embedding
+                    (r.ingredients_embedding <-> %s::vector) AS ingredients_distance,
+                    -- Similarity Score: 1 - (distance/2)
+                    1.0 - (r.ingredients_embedding <-> %s::vector) / 2.0 AS ingredients_similarity
+                FROM {TABLE_RECIPES} r
+                WHERE r.ingredients_embedding IS NOT NULL
+                ORDER BY r.ingredients_embedding <-> %s::vector ASC
+                LIMIT %s
+            """
+
+            expanded_limit = max(30, limit * 3)
+
+            print(f"🔍 Führe SQL-Abfrage für ZUTATEN aus...", file=sys.stderr)
+
+            with self.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, [query_vector, query_vector, query_vector, expanded_limit])
+                    rows = cur.fetchall()
+
+                    print(f"✅ {len(rows)} Roh-Ergebnisse von DB (Zutaten)", file=sys.stderr)
+
+                    if len(rows) == 0:
+                        print("⚠️  Keine Ergebnisse für Zutaten-Suche", file=sys.stderr)
+                        return []
+
+                    results = []
+                    for idx, row in enumerate(rows):
+                        recipe_id = row[0]
+
+                        # DEBUG für erste 3 Ergebnisse
+                        if idx < 3:
+                            print(f"   📊 Zutaten-Ergebnis {idx+1}: '{row[1]}'", file=sys.stderr)
+                            print(f"      Zutaten-Distance: {row[15]:.4f}, Score: {row[16]:.4f}", file=sys.stderr)
+
+                        ingredients = self._get_recipe_ingredients(cur, recipe_id)
+
+                        ingredients_distance = float(row[15]) if row[15] is not None else 2.0
+                        ingredients_similarity = float(row[16]) if row[16] is not None else 0.0
+
+                        # Score = 100% Zutaten-Ähnlichkeit
+                        final_score = ingredients_similarity
+                        final_score = max(0.0, min(1.0, final_score))
+
+                        results.append({
+                            "recipe_id": recipe_id,
+                            "name": row[1],
+                            "description": row[2],
+                            "instructions": row[3],
+                            "diet": row[4],
+                            "vegan": row[5],
+                            "vegetarian": row[6],
+                            "total_time": row[7],
+                            "difficulty": row[8],
+                            "calories": row[9],
+                            "protein": row[10],
+                            "carbohydrates": row[11],
+                            "fat": row[12],
+                            "price_per_serving": f"{row[13]}€" if row[13] is not None else None,
+                            "image_url": row[14],
+                            "ingredients_distance": ingredients_distance,
+                            "ingredients_similarity": ingredients_similarity,
+                            "score": final_score,
+                            "ingredients": ingredients
+                        })
+
+                    results.sort(key=lambda x: x["score"], reverse=True)
+                    final_results = results[:limit]
+
+                    print(f"🎯 {len(final_results)} finale Zutaten-Ergebnisse", file=sys.stderr)
+                    if final_results:
+                        print(f"🏆 Bester Zutaten-Score: {final_results[0]['score']:.4f}", file=sys.stderr)
+
+                    return final_results
+
+        except Exception as e:
+            print(f"❌ ERROR in search_by_text_for_ingredients: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
             return []
 
-        PRIMARY_WEIGHT = 2.0
-        DECAY = 1.0
+    # In search_combined() Funktion:
+    def search_combined(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Kombiniert Text- und Zutaten-Ähnlichkeit (90/10)"""
+        print(f"\n=== START COMBINED SEARCH ===", file=sys.stderr)
+        print(f"🔍 Query: '{query}'", file=sys.stderr)
+        print(f"🔍 Kombiniere Text- und Zutaten-Ähnlichkeit (90%/10%)", file=sys.stderr)
 
-        single_vecs: List[List[float]] = []
-        weights: List[float] = []
-        for idx, ing in enumerate(ingredients):
-            v = embedding_model.embed(ing)
-            single_vecs.append(v)
-            w = (PRIMARY_WEIGHT if idx == 0 else (DECAY ** idx))
-            weights.append(w)
+        # 1. Text-Ähnlichkeit
+        print(f"📝 1. Starte Text-Ähnlichkeitssuche...", file=sys.stderr)
+        text_results = self.search_by_text(query, limit * 2)
+        print(f"✅ Text-Ähnlichkeit: {len(text_results)} Ergebnisse", file=sys.stderr)
 
-        dim = len(single_vecs[0])
-        weighted = [0.0] * dim
-        weight_sum = 0.0
-        for v, w in zip(single_vecs, weights):
-            for i in range(dim):
-                weighted[i] += w * v[i]
-            weight_sum += w
-        if weight_sum > 0:
-            weighted = [x / weight_sum for x in weighted]
+        # 2. Zutaten-Ähnlichkeit
+        print(f"🥕 2. Starte Zutaten-Ähnlichkeitssuche...", file=sys.stderr)
+        ingredients_results = self.search_by_text_for_ingredients(query, limit * 2)
+        print(f"✅ Zutaten-Ähnlichkeit: {len(ingredients_results)} Ergebnisse", file=sys.stderr)
 
-        query_vector = embedding_model.vector_to_literal(weighted)
-        expanded_limit = max(20, int(limit) * 5)
+        # Debug: Zeige Top-Ergebnisse
+        if text_results:
+            print(f"📊 Top Text-Scores:", file=sys.stderr)
+            for i, r in enumerate(text_results[:3]):
+                print(f"   {i+1}. {r['name']}: {r.get('score', 0):.4f}", file=sys.stderr)
 
-        with self.db.get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    SELECT 
-                        r.recipe_id, r.name, r.description, r.instructions,
-                        r.diet, r.vegan, r.vegetarian, r.total_time, r.difficulty,
-                        r.calories, r.protein, r.carbohydrates, r.fat,
-                        r.price_per_serving, r.image_url,
-                        (r.ingredients_embedding <-> %s::vector) AS d_ing
-                    FROM {TABLE_RECIPES} r
-                    ORDER BY r.ingredients_embedding <-> %s::vector
-                    LIMIT %s
-                    """,
-                    (query_vector, query_vector, expanded_limit)
-                )
+        if ingredients_results:
+            print(f"📊 Top Zutaten-Scores:", file=sys.stderr)
+            for i, r in enumerate(ingredients_results[:3]):
+                print(f"   {i+1}. {r['name']}: {r.get('score', 0):.4f} (Dist: {r.get('ingredients_distance', 0):.4f})", file=sys.stderr)
 
-                rows = cur.fetchall()
+        # 3. Kombiniere und gewichte
+        combined = {}
 
-                seen_titles = set()
-                results: List[Dict[str, Any]] = []
+        print(f"🧮 3. Kombiniere Scores...", file=sys.stderr)
 
-                for row in rows:
-                    recipe_id = row[0]
-                    name = row[1] or ""
+        for result in text_results:
+            recipe_id = result["recipe_id"]
+            combined[recipe_id] = {
+                **result,
+                "text_score": result.get("score", 0),
+                "ingredients_score": 0.0,
+                "combined_score": result.get("score", 0) * 0.9,  # 90% Text
+                "score": result.get("score", 0) * 0.9  # Haupt-Score für Kompatibilität
+            }
 
-                    if name in seen_titles:
-                        continue
+        for result in ingredients_results:
+            recipe_id = result["recipe_id"]
+            ingredients_score = result.get("score", 0)
 
-                    ingredients_list = self._get_recipe_ingredients(cur, recipe_id)
+            if recipe_id in combined:
+                # Füge Zutaten-Score hinzu (10%)
+                old_score = combined[recipe_id]["score"]
+                combined[recipe_id]["ingredients_score"] = ingredients_score
+                combined[recipe_id]["score"] += ingredients_score * 0.1
+                combined[recipe_id]["combined_score"] += ingredients_score * 0.1
+            else:
+                # Nur Zutaten-Score
+                combined[recipe_id] = {
+                    **result,
+                    "text_score": 0.0,
+                    "ingredients_score": ingredients_score,
+                    "combined_score": ingredients_score * 0.1,
+                    "score": ingredients_score * 0.1
+                }
 
-                    results.append({
-                        "recipe_id": recipe_id,
-                        "name": name,
-                        "description": row[2],
-                        "instructions": row[3],
-                        "diet": row[4],
-                        "vegan": row[5],
-                        "vegetarian": row[6],
-                        "total_time": row[7],
-                        "difficulty": row[8],
-                        "calories": row[9],
-                        "protein": row[10],
-                        "carbohydrates": row[11],
-                        "fat": row[12],
-                        "price_per_serving": f"{row[13]}€" if row[13] is not None else None,
-                        "image_url": row[14],
-                        "distance": float(row[15]) if row[15] is not None else None,
-                        "distance_ingredients": float(row[15]) if row[15] is not None else None,
-                        "ingredients": ingredients_list
-                    })
+        # Sortiere nach score (nicht combined_score)
+        final_results = sorted(combined.values(),
+                               key=lambda x: x["score"],
+                               reverse=True)[:limit]
 
-                    seen_titles.add(name)
+        print(f"🎯 {len(final_results)} finale kombinierte Ergebnisse", file=sys.stderr)
+        if final_results:
+            print(f"🏆 Bester kombinierter Score: {final_results[0]['score']:.4f}", file=sys.stderr)
+            print(f"📊 Score-Verteilung:", file=sys.stderr)
+            for i, r in enumerate(final_results[:5]):
+                print(f"   {i+1}. {r['name'][:30]}...: {r['score']:.4f} "
+                      f"(Text: {r.get('text_score', 0):.4f}×0.9 + "
+                      f"Zutaten: {r.get('ingredients_score', 0):.4f}×0.1)", file=sys.stderr)
 
-                    if len(results) >= limit:
-                        break
-
-                return results
+        return final_results
 
     def _get_recipe_ingredients(self, cur, recipe_id: str) -> List[Dict[str, Any]]:
         cur.execute(
