@@ -607,7 +607,7 @@ app.post('/', async (c) => {
 
     try {
       // ABSOLUTER PFAD ZUM PYTHON-SKRIPT
-      const pythonScriptPath = 'C:\\Users\\nicow\\Documents\\SoupMate\\src\\supabase\\functions\\server\\scripts\\clean_search.py';
+        const pythonScriptPath = './scripts/clean_search.py';
       console.log(`📂 Python script path: ${pythonScriptPath}`);
 
       const command = new Deno.Command("python", {
@@ -1041,7 +1041,7 @@ app.post('/test-python', async (c) => {
 
     console.log(`[TEST] Testing Python with query: "${query}"`);
 
-    const pythonScriptPath = 'C:\\Users\\nicow\\Documents\\SoupMate\\src\\supabase\\functions\\server\\scripts\\clean_search.py';
+    const pythonScriptPath = './scripts/clean_search.py';
 
     const command = new Deno.Command("python", {
       args: [pythonScriptPath, query],

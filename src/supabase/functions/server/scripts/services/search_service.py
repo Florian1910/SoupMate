@@ -8,6 +8,16 @@ from services.database import DatabaseService
 from config import TABLE_RECIPES, TABLE_ING, TABLE_LINK, TABLE_NUTRITION
 
 class EmbeddingService:
+# Add this method to the EmbeddingService class in search_service.py
+    def search_by_ingredients(self, ingredients: List[str], limit: int = 10) -> List[Dict[str, Any]]:
+        """Search recipes by list of ingredients"""
+        if not ingredients:
+            return []
+
+        # Combine ingredients into a query
+        query = " ".join(ingredients)
+        return self.search_by_text_for_ingredients(query, limit)
+
     def __init__(self):
         self.db = DatabaseService()
         self._all_ingredients_cache = None

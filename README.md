@@ -59,7 +59,7 @@ Führe die folgenden Python-Kommandos im `server`-Verzeichnis aus, um Rezepte zu
 
 ### Rezepte von Spoonacular importieren
    ```bash
-   python scripts/main.py ingest --limit-calls 4
+    python scripts/ingest_recipes.py --limit-calls 4 --batch-size 100
    ```
 
 ### Semantische Suche
