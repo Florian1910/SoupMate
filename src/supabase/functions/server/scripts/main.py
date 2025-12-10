@@ -4,8 +4,6 @@ import json
 import os
 import argparse
 import logging
-import time
-from typing import List
 
 # DEBUG: Welche Datei wird ausgeführt?
 print(f"🔍 Python-Skript gestartet: {__file__}", file=sys.stderr)
@@ -13,22 +11,27 @@ print(f"🔍 Python Version: {sys.version}", file=sys.stderr)
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Importiere Module
 try:
     from services.search_service import EmbeddingService
     from services.spoonacular import SpoonacularService
     from services.database import DatabaseService
-    from utils.helpers import setup_logging, print_json, format_recipe_details, format_search_results
+    from utils.helpers import (
+        setup_logging,
+        print_json,
+        format_recipe_details,
+        format_search_results,
+    )
     CLI_AVAILABLE = True
 except ImportError:
     CLI_AVAILABLE = False
     # Für TypeScript reicht EmbeddingService
     from services.search_service import EmbeddingService
 
-STATE_FILE = "ingest_state.json"
-
-# ====== TYPESCRIPT-MODUS (Wird von deiner Web-App aufgerufen) ======
 def typescript_mode():
+    """
+    Erwartet als erstes Argument die Query,
+    führt die kombinierte Suche aus.
+    """
     try:
         if len(sys.argv) > 1:
             query = sys.argv[1]
@@ -37,7 +40,6 @@ def typescript_mode():
 
         limit = 10
 
-        # NUR nach stderr, nicht nach stdout!
         print(f"🔍 START COMBINED SEARCH for: '{query}'", file=sys.stderr)
         print(f"🔍 Limit: {limit}", file=sys.stderr)
 
@@ -48,102 +50,19 @@ def typescript_mode():
 
         # WICHTIG: NUR JSON nach stdout!
         output = json.dumps(results, ensure_ascii=False, default=str)
-
-        # Keine zusätzlichen Ausgaben außer dem JSON!
         sys.stdout.write(output)
         sys.stdout.flush()
 
     except Exception as e:
         print(f"❌ Error: {e}", file=sys.stderr)
         import traceback
+
         traceback.print_exc(file=sys.stderr)
-        # Auch Fehler als leeres JSON-Array ausgeben
+        # Fehler: leeres JSON-Array an Frontend zurückgeben
         print(json.dumps([]))
 
-if __name__ == "__main__":
-    typescript_mode()
 
-# ====== CLI-MODUS (Für dich als Admin) ======
-def load_state():
-    """Lädt den letzten Offset aus einer Datei."""
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE, "r") as f:
-                data = json.load(f)
-                return data.get("offset", 0)
-        except Exception:
-            return 0
-    return 0
-
-def save_state(offset):
-    """Speichert den aktuellen Offset in eine Datei."""
-    with open(STATE_FILE, "w") as f:
-        json.dump({"offset": offset}, f)
-
-def ingest_recipes(query: str = "", max_requests: int = 50):
-    """Importiert Rezepte in einer Schleife (Pagination)."""
-    if not CLI_AVAILABLE:
-        print("❌ CLI-Funktionen nicht verfügbar. Prüfe Imports.", file=sys.stderr)
-        return
-
-    spoonacular = SpoonacularService()
-    db = DatabaseService()
-
-    current_offset = load_state()
-    recipes_per_call = 100
-
-    logging.info(f"🚀 START: Ingest beginnt bei Offset: {current_offset}")
-
-    total_saved_session = 0
-
-    for i in range(max_requests):
-        logging.info(f"--- Batch {i+1}/{max_requests} (Lade Offset {current_offset}) ---")
-
-        try:
-            recipes_data = spoonacular.fetch_recipes(
-                query=query,
-                number=recipes_per_call,
-                offset=current_offset
-            )
-
-            if not recipes_data:
-                logging.warning("⚠️ Keine weiteren Rezepte gefunden (Ende der Liste).")
-                break
-
-            saved_count = 0
-            for recipe_data in recipes_data:
-                try:
-                    recipe = spoonacular.normalize_recipe(recipe_data)
-                    db.save_recipe(recipe)
-                    saved_count += 1
-                    # Kleines Feedback alle 10 Rezepte
-                    if saved_count % 10 == 0:
-                        print(f"   ... {saved_count} Rezepte verarbeitet ...")
-                except Exception as e:
-                    logging.warning(f"Überspringe Rezept: {e}")
-                    continue
-
-            total_saved_session += saved_count
-            logging.info(f"✅ Batch fertig: {saved_count} Rezepte gespeichert.")
-
-            # Offset erhöhen & speichern
-            current_offset += recipes_per_call
-            save_state(current_offset)
-
-            if len(recipes_data) < recipes_per_call:
-                logging.info("🏁 Alle verfügbaren Rezepte geladen.")
-                break
-
-            time.sleep(1)
-
-        except Exception as e:
-            logging.error(f"❌ Kritischer Fehler: {e}")
-            break
-
-    logging.info(f"🎉 Session beendet. Gespeichert: {total_saved_session}")
-    logging.info(f"👉 Nächster Start bei Offset: {current_offset}")
-
-# --- Such-Funktionen ---
+# --- Such-Funktionen für die CLI ---
 def search_by_text_cli(query: str, limit: int, format_output: bool = False):
     embedding_service = EmbeddingService()
     try:
@@ -156,7 +75,8 @@ def search_by_text_cli(query: str, limit: int, format_output: bool = False):
         logging.error(f"Fehler bei Textsuche: {e}")
         sys.exit(1)
 
-def search_by_ingredients_cli(ingredients: List[str], limit: int, format_output: bool = False):
+
+def search_by_ingredients_cli(ingredients, limit: int, format_output: bool = False):
     embedding_service = EmbeddingService()
     try:
         results = embedding_service.search_by_ingredients(ingredients, limit)
@@ -167,6 +87,7 @@ def search_by_ingredients_cli(ingredients: List[str], limit: int, format_output:
     except Exception as e:
         logging.error(f"Fehler bei Zutaten-Suche: {e}")
         sys.exit(1)
+
 
 def get_recipe_details_cli(recipe_id: str):
     embedding_service = EmbeddingService()
@@ -180,20 +101,26 @@ def get_recipe_details_cli(recipe_id: str):
         logging.error(f"Fehler bei Details: {e}")
         sys.exit(1)
 
+
 def cli_mode():
-    """CLI-Hauptfunktion für administrative Zwecke"""
+    """CLI-Hauptfunktion für administrative Such- und Detail-Abfragen."""
     if not CLI_AVAILABLE:
         print("❌ CLI-Funktionen nicht verfügbar. Prüfe Imports.", file=sys.stderr)
         sys.exit(1)
 
     setup_logging()
 
+    # Falls noch kein StreamHandler existiert, einen hinzufügen
     root_logger = logging.getLogger()
-    has_stream_handler = any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers)
+    has_stream_handler = any(
+        isinstance(h, logging.StreamHandler) for h in root_logger.handlers
+    )
     if not has_stream_handler:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%H:%M:%S')
+        formatter = logging.Formatter(
+            "%(asctime)s - %(message)s", datefmt="%H:%M:%S"
+        )
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
         root_logger.setLevel(logging.INFO)
@@ -201,36 +128,29 @@ def cli_mode():
     parser = argparse.ArgumentParser(description="SoupMate CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # Ingest
-    ingest_parser = subparsers.add_parser("ingest", help="Rezepte importieren")
-    ingest_parser.add_argument("--query", default="", help="Optional Query")
-    ingest_parser.add_argument("--limit-calls", type=int, default=50, help="Max Calls")
-
     # Search Text
     text_parser = subparsers.add_parser("search-text", help="Textsuche")
-    text_parser.add_argument("--q", required=True)
-    text_parser.add_argument("--k", type=int, default=10)
-    text_parser.add_argument("--format", action="store_true")
+    text_parser.add_argument("--q", required=True, help="Suchtext")
+    text_parser.add_argument("--k", type=int, default=10, help="Anzahl Ergebnisse")
+    text_parser.add_argument("--format", action="store_true", help="Schön formatiert ausgeben")
 
     # Search Ingredients
     ing_parser = subparsers.add_parser("search-ingredients", help="Zutatensuche")
-    ing_parser.add_argument("--ing", nargs="+", required=True)
-    ing_parser.add_argument("--k", type=int, default=10)
-    ing_parser.add_argument("--format", action="store_true")
+    ing_parser.add_argument("--ing", nargs="+", required=True, help="Liste von Zutaten")
+    ing_parser.add_argument("--k", type=int, default=10, help="Anzahl Ergebnisse")
+    ing_parser.add_argument("--format", action="store_true", help="Schön formatiert ausgeben")
 
     # Details
-    det_parser = subparsers.add_parser("details", help="Details")
-    det_parser.add_argument("--recipe-id", required=True)
+    det_parser = subparsers.add_parser("details", help="Rezept-Details anzeigen")
+    det_parser.add_argument("--recipe-id", required=True, help="Rezept-ID")
 
     args = parser.parse_args()
 
     try:
-        if args.command == "ingest":
-            ingest_recipes(query=args.query, max_requests=args.limit_calls)
-        elif args.command == "search-text":
-            search_by_text_cli(args.q, args.k, getattr(args, 'format', False))
+        if args.command == "search-text":
+            search_by_text_cli(args.q, args.k, getattr(args, "format", False))
         elif args.command == "search-ingredients":
-            search_by_ingredients_cli(args.ing, args.k, getattr(args, 'format', False))
+            search_by_ingredients_cli(args.ing, args.k, getattr(args, "format", False))
         elif args.command == "details":
             get_recipe_details_cli(args.recipe_id)
 
@@ -242,19 +162,20 @@ def cli_mode():
         print(f"CRITICAL ERROR: {e}")
         sys.exit(1)
 
+
 # ====== HAUPTPROGRAMM ======
 if __name__ == "__main__":
-    # HEURISTIK:
-    # - Wenn kein Argument: TypeScript-Modus (leerer Query)
-    # - Wenn erstes Argument mit "--" beginnt oder ein bekannter CLI-Befehl ist: CLI-Modus
-    # - Sonst: TypeScript-Modus (Query als Argument)
-
+    """
+    Heuristik:
+    - Keine Argumente: TypeScript-Modus (leere Query, nur zum Testen)
+    - Erstes Argument ist bekannter CLI-Befehl -> CLI-Modus
+    - Sonst: TypeScript-Modus mit Query als erstem Argument
+    """
     if len(sys.argv) == 1:
-        # Keine Argumente = TypeScript-Modus mit leerem Query
+        # Keine Argumente = TypeScript-Modus mit Default-Query
         typescript_mode()
     else:
-        # Prüfe ob CLI-Befehl
-        cli_commands = ["ingest", "search-text", "search-ingredients", "details"]
+        cli_commands = ["search-text", "search-ingredients", "details"]
         if sys.argv[1] in cli_commands:
             cli_mode()
         else:
