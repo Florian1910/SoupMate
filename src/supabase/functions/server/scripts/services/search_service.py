@@ -2,6 +2,7 @@ import logging
 import re
 import sys
 import math
+import uuid
 from typing import List, Dict, Any, Tuple, Set
 from models.embedding import embedding_model
 from services.database import DatabaseService
@@ -260,84 +261,190 @@ class EmbeddingService:
             traceback.print_exc(file=sys.stderr)
             return []
 
-    # In search_combined() Funktion:
-    def search_combined(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Kombiniert Text- und Zutaten-Ähnlichkeit (90/10)"""
-        print(f"\n=== START COMBINED SEARCH ===", file=sys.stderr)
+    def _ingredients_similarity_for_ids(self, query: str, recipe_ids: List[str]) -> Dict[str, float]:
+        """
+        Berechnet die Zutaten-Similarity NUR für die gegebenen recipe_ids.
+        Liefert ein Mapping: recipe_id -> ingredients_similarity (0.0–1.0)
+        """
+        print(f"\n=== _ingredients_similarity_for_ids ===", file=sys.stderr)
         print(f"🔍 Query: '{query}'", file=sys.stderr)
-        print(f"🔍 Kombiniere Text- und Zutaten-Ähnlichkeit (90%/10%)", file=sys.stderr)
+        print(f"🔍 Anzahl recipe_ids: {len(recipe_ids)}", file=sys.stderr)
 
-        # 1. Text-Ähnlichkeit
-        print(f"📝 1. Starte Text-Ähnlichkeitssuche...", file=sys.stderr)
-        text_results = self.search_by_text(query, limit * 2)
+        if not recipe_ids:
+            print("⚠️  Keine recipe_ids übergeben, breche ab.", file=sys.stderr)
+            return {}
+
+        try:
+            # 1. Validiere und konvertiere UUIDs
+            valid_uuids = []
+            for recipe_id in recipe_ids:
+                try:
+                    uuid_obj = uuid.UUID(recipe_id)
+                    valid_uuids.append(str(uuid_obj))
+                except ValueError:
+                    print(f"⚠️  Ungültige UUID: {recipe_id}", file=sys.stderr)
+                    continue
+
+            if not valid_uuids:
+                print("❌ Keine gültigen UUIDs gefunden", file=sys.stderr)
+                return {}
+
+            # 2. Embedding für Query
+            print(f"🔍 Erstelle Embedding für Query (Zutaten)...", file=sys.stderr)
+            query_embedding = embedding_model.embed(query)
+            query_vector = embedding_model.vector_to_literal(query_embedding)
+            print(f"✅ Query-Vektor für Zutaten erstellt", file=sys.stderr)
+
+            # 3. SQL-Query mit UUID-Array
+            sql = f"""
+                    WITH recipe_ingredients AS (
+                        SELECT 
+                            ri.recipe_id,
+                            i.name,
+                            1.0 - (i.name_embedding <=> %s::vector) AS similarity
+                        FROM {TABLE_LINK} ri
+                        JOIN {TABLE_ING} i ON ri.ingredient_id = i.ingredient_id
+                        WHERE ri.recipe_id::text = ANY(%s)
+                    ),
+                    recipe_stats AS (
+                        SELECT
+                            recipe_id,
+                            MAX(similarity) as best_match,
+                            AVG(similarity) as avg_match,
+                            COUNT(*) as ingredient_count
+                        FROM recipe_ingredients
+                        GROUP BY recipe_id
+                    )
+                    SELECT
+                        recipe_id::text,
+                        -- Kombiniere beste Übereinstimmung mit Durchschnitt
+                        (best_match * 0.7 + avg_match * 0.3) as weighted_similarity,
+                        best_match,
+                        avg_match,
+                        ingredient_count
+                    FROM recipe_stats
+                """
+
+            similarity_map: Dict[str, float] = {}
+
+            with self.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, [query_vector, valid_uuids])
+                    rows = cur.fetchall()
+
+                    print(f"✅ {len(rows)} Zutaten-Similarity Werte für Text-Results geladen", file=sys.stderr)
+
+                    for row in rows:
+                        recipe_id = row[0]
+                        weighted_similarity = float(row[1]) if row[1] is not None else 0.0
+                        best_match = float(row[2]) if row[2] is not None else 0.0
+                        avg_match = float(row[3]) if row[3] is not None else 0.0
+                        ingredient_count = int(row[4]) if row[4] is not None else 0
+
+                        # Clamp den Wert zwischen 0 und 1
+                        weighted_similarity = max(0.0, min(1.0, weighted_similarity))
+
+                        # **WICHTIG: Transformation anwenden und speichern!**
+                        transformed_similarity = weighted_similarity * 1.5
+                        transformed_similarity = min(1.0, transformed_similarity)  # Nicht über 1.0
+
+                        # ✅ Jetzt den TRANSFORMIERTEN Score speichern!
+                        similarity_map[str(recipe_id)] = transformed_similarity
+
+                        print(f"   📊 Recipe {recipe_id}:", file=sys.stderr)
+                        print(f"      - Best Match: {best_match:.4f}", file=sys.stderr)
+                        print(f"      - Avg Match: {avg_match:.4f}", file=sys.stderr)
+                        print(f"      - Weighted (Raw): {weighted_similarity:.4f}", file=sys.stderr)
+                        print(f"      - Transformed (Final): {transformed_similarity:.4f}", file=sys.stderr)
+                        print(f"      - Ingredient Count: {ingredient_count}", file=sys.stderr)
+
+            return similarity_map
+
+        except Exception as e:
+            print(f"❌ ERROR in _ingredients_similarity_for_ids: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            return {}
+
+
+    def search_combined(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Kombiniert Text- und Zutaten-Ähnlichkeit:
+        - Schritt 1: Text-Suche (größeres Limit)
+        - Schritt 2: Zutaten-Similarity NUR für diese Text-Ergebnisse
+        - Schritt 3: Score = 0.7 * Text + 0.3 * Ingredients
+        """
+        print(f"\n=== START COMBINED SEARCH (NEU) ===", file=sys.stderr)
+        print(f"🔍 Query: '{query}'", file=sys.stderr)
+
+        TEXT_WEIGHT = 0.7
+        ING_WEIGHT = 0.3
+
+        print(f"⚖️  Gewichtung: {TEXT_WEIGHT * 100}% Text, {ING_WEIGHT * 100}% Zutaten", file=sys.stderr)
+
+        # 1. Text-Ergebnisse holen (mit erweitertem Limit)
+        expanded_limit = max(30, limit * 3)
+        print(f"📝 1. Starte Text-Ähnlichkeitssuche mit expanded_limit={expanded_limit}...", file=sys.stderr)
+        text_results = self.search_by_text(query, expanded_limit)
         print(f"✅ Text-Ähnlichkeit: {len(text_results)} Ergebnisse", file=sys.stderr)
 
-        # 2. Zutaten-Ähnlichkeit
-        print(f"🥕 2. Starte Zutaten-Ähnlichkeitssuche...", file=sys.stderr)
-        ingredients_results = self.search_by_text_for_ingredients(query, limit * 2)
-        print(f"✅ Zutaten-Ähnlichkeit: {len(ingredients_results)} Ergebnisse", file=sys.stderr)
+        if not text_results:
+            print("⚠️  Keine Text-Ergebnisse, breche kombinierte Suche ab.", file=sys.stderr)
+            return []
 
-        # Debug: Zeige Top-Ergebnisse
-        if text_results:
-            print(f"📊 Top Text-Scores:", file=sys.stderr)
-            for i, r in enumerate(text_results[:3]):
-                print(f"   {i+1}. {r['name']}: {r.get('score', 0):.4f}", file=sys.stderr)
+        # 2. Zutaten-Similarity NUR für diese besten Text-Results (Top 15)
+        top_15_recipe_ids = [r["recipe_id"] for r in text_results[:15]]
+        ingredients_map = self._ingredients_similarity_for_ids(query, top_15_recipe_ids)
 
-        if ingredients_results:
-            print(f"📊 Top Zutaten-Scores:", file=sys.stderr)
-            for i, r in enumerate(ingredients_results[:3]):
-                print(f"   {i+1}. {r['name']}: {r.get('score', 0):.4f} (Dist: {r.get('ingredients_distance', 0):.4f})", file=sys.stderr)
+        print(f"🥕 Zutaten-Scores für {len(ingredients_map)} von 15 Text-Ergebnissen gefunden", file=sys.stderr)
 
-        # 3. Kombiniere und gewichte
-        combined = {}
+        # 3. Kombiniert alle Text-Ergebnisse mit ihren Ingredients-Scores
+        combined: List[Dict[str, Any]] = []
 
-        print(f"🧮 3. Kombiniere Scores...", file=sys.stderr)
+        for idx, r in enumerate(text_results[:15]):  # Nur die Top 15
+            recipe_id = r["recipe_id"]
+            text_score = float(r.get("score", 0.0))
+            ingredients_score = float(ingredients_map.get(recipe_id, 0.0))
 
-        for result in text_results:
-            recipe_id = result["recipe_id"]
-            combined[recipe_id] = {
-                **result,
-                "text_score": result.get("score", 0),
-                "ingredients_score": 0.0,
-                "combined_score": result.get("score", 0) * 0.9,  # 90% Text
-                "score": result.get("score", 0) * 0.9  # Haupt-Score für Kompatibilität
+            final_score = text_score * TEXT_WEIGHT + ingredients_score * ING_WEIGHT
+
+            enriched = {
+                **r,
+                "text_score": text_score,
+                "ingredients_score": ingredients_score,
+                "combined_score": final_score,
+                "score": final_score
             }
 
-        for result in ingredients_results:
-            recipe_id = result["recipe_id"]
-            ingredients_score = result.get("score", 0)
+            combined.append(enriched)
 
-            if recipe_id in combined:
-                # Füge Zutaten-Score hinzu (10%)
-                old_score = combined[recipe_id]["score"]
-                combined[recipe_id]["ingredients_score"] = ingredients_score
-                combined[recipe_id]["score"] += ingredients_score * 0.1
-                combined[recipe_id]["combined_score"] += ingredients_score * 0.1
-            else:
-                # Nur Zutaten-Score
-                combined[recipe_id] = {
-                    **result,
-                    "text_score": 0.0,
-                    "ingredients_score": ingredients_score,
-                    "combined_score": ingredients_score * 0.1,
-                    "score": ingredients_score * 0.1
-                }
+            if idx < 3:
+                print(
+                    f"   #{idx+1} {r['name'][:40]}... "
+                    f"Text={text_score:.4f}, Zutaten={ingredients_score:.4f}, Final={final_score:.4f}",
+                    file=sys.stderr
+                )
 
-        # Sortiere nach score (nicht combined_score)
-        final_results = sorted(combined.values(),
-                               key=lambda x: x["score"],
-                               reverse=True)[:limit]
+        # 4. Sortieren & limitieren
+        combined.sort(key=lambda x: x["score"], reverse=True)
+        final_results = combined[:limit]
 
         print(f"🎯 {len(final_results)} finale kombinierte Ergebnisse", file=sys.stderr)
         if final_results:
-            print(f"🏆 Bester kombinierter Score: {final_results[0]['score']:.4f}", file=sys.stderr)
-            print(f"📊 Score-Verteilung:", file=sys.stderr)
+            best = final_results[0]
+            print(f"🏆 Bester kombinierter Score: {best['score']:.4f} ({best['name']})", file=sys.stderr)
+            print(f"📊 Score-Verteilung (Top {min(5, len(final_results))}):", file=sys.stderr)
             for i, r in enumerate(final_results[:5]):
-                print(f"   {i+1}. {r['name'][:30]}...: {r['score']:.4f} "
-                      f"(Text: {r.get('text_score', 0):.4f}×0.9 + "
-                      f"Zutaten: {r.get('ingredients_score', 0):.4f}×0.1)", file=sys.stderr)
+                print(
+                    f"   {i+1}. {r['name'][:30]}...: {r['score']:.4f} "
+                    f"(Text: {r.get('text_score', 0):.4f}×{TEXT_WEIGHT} "
+                    f"+ Zutaten: {r.get('ingredients_score', 0):.4f}×{ING_WEIGHT})",
+                    file=sys.stderr
+                )
 
         return final_results
+
+
 
     def _get_recipe_ingredients(self, cur, recipe_id: str) -> List[Dict[str, Any]]:
         cur.execute(
@@ -357,9 +464,26 @@ class EmbeddingService:
 
         ingredients = []
         for row in cur.fetchall():
+            name = row[0] or ""
+            quantity_text = row[1] or ""
+
+            # ENTFERNE PROBLEMATISCHE UNICODE-ZEICHEN
+            if quantity_text:
+                # Entferne spezielle Bruchzeichen
+                fraction_chars = {
+                    '½': '1/2', '⅓': '1/3', '⅔': '2/3',
+                    '¼': '1/4', '¾': '3/4', '⅕': '1/5',
+                    '⅖': '2/5', '⅗': '3/5', '⅘': '4/5',
+                    '⅙': '1/6', '⅚': '5/6', '⅛': '1/8',
+                    '⅜': '3/8', '⅝': '5/8', '⅞': '7/8'
+                }
+
+                for frac_char, replacement in fraction_chars.items():
+                    quantity_text = quantity_text.replace(frac_char, replacement)
+
             ingredients.append({
-                "name": row[0],
-                "quantity_text": row[1],
+                "name": name,
+                "quantity_text": quantity_text,
                 "amount": row[2],
                 "unit": row[3]
             })
