@@ -5,6 +5,10 @@ import { Card } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./ui/tabs";
 import { motion, AnimatePresence } from "motion/react";
+import { supabase } from "../utils/supabase/client";
+import { addFavorite } from "../favoritesApi";
+
+
 
 interface Recipe {
   id: string;
@@ -217,28 +221,27 @@ export function RecipeResults({ chatHistory, onAddToFavorites, onBack }: RecipeR
                                   {/* Right Side: Favorite Button and Expand Icon */}
                                   <div className="flex items-center gap-2 flex-shrink-0">
                                     <Button
-                                      onClick={(e) => {
+                                      onClick={async (e) => {
                                         e.stopPropagation();
-                                        console.log('⭐ Adding to favorites:', recipe);
-                                        onAddToFavorites({
-                                          id: recipe.id,
-                                          name: recipe.name,
-                                          description: recipe.description,
-                                          difficulty: recipe.difficulty,
-                                          workTime: recipe.workTime,
-                                          totalTime: recipe.totalTime,
-                                          servings: recipe.servings,
-                                          ingredients: recipe.ingredients,
-                                          instructions: recipe.instructions,
-                                          isVegan: recipe.isVegan,
-                                          isVegetarian: recipe.isVegetarian,
-                                          allergens: recipe.allergens,
-                                          imageUrl: recipe.imageUrl
-                                        });
+
+                                        const { data } = await supabase.auth.getSession();
+                                        const token = data.session?.access_token;
+
+                                        if (!token) {
+                                          alert("Bitte einloggen, um Favoriten zu speichern");
+                                          return;
+                                        }
+
+                                        try {
+                                          await addFavorite(recipe.id, token);
+                                          console.log("❤️ Favorit gespeichert:", recipe.id);
+                                        } catch (err) {
+                                          console.error(err);
+                                          alert("Favorit konnte nicht gespeichert werden");
+                                        }
                                       }}
                                       variant="ghost"
                                       size="icon"
-                                      className="hover:bg-primary/10 text-primary hover:scale-110 transition-all duration-300 h-8 w-8"
                                     >
                                       <Heart size={18} />
                                     </Button>
