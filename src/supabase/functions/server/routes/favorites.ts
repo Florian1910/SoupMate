@@ -34,15 +34,15 @@ async function readJson(c: any) {
 }
 
 /**
- * GET /  (mounted under /favorites)
+ * GET /
  * Returns: { favorites: Recipe[] }
- * Works WITHOUT FK relationship (2 queries)
+ * 2-step (NO FK relationship needed)
  */
 app.get("/", async (c) => {
   const userId = await getUserId(c);
   if (!userId) return c.json({ error: "Unauthorized" }, 401);
 
-  // 1) favorite recipe_ids holen
+  // 1) ids holen
   const { data: favRows, error: favErr } = await supabase
     .from("user_favorites")
     .select("recipe_id")
@@ -54,12 +54,9 @@ app.get("/", async (c) => {
   }
 
   const ids: string[] = (favRows ?? []).map((r: any) => r.recipe_id).filter(Boolean);
+  if (ids.length === 0) return c.json({ favorites: [] });
 
-  if (ids.length === 0) {
-    return c.json({ favorites: [] });
-  }
-
-  // 2) Rezepte holen (PK ist recipe_id)
+  // 2) Rezepte holen (PK in deiner Tabelle ist recipe_id)
   const { data: recipes, error: recErr } = await supabase
     .from("test_recipes")
     .select("*")
@@ -70,7 +67,7 @@ app.get("/", async (c) => {
     return c.json({ error: recErr.message }, 500);
   }
 
-  // Optional: gleiche Reihenfolge wie ids (WICHTIG: key ist recipe_id!)
+  // gleiche Reihenfolge wie ids (wichtig: key = recipe_id)
   const byId = new Map<string, any>((recipes ?? []).map((r: any) => [r.recipe_id, r]));
   const ordered = ids.map((id) => byId.get(id)).filter(Boolean);
 
@@ -104,14 +101,16 @@ app.post("/", async (c) => {
 
 /**
  * DELETE /
- * Body: { recipe_id: string }
+ * Accepts:
+ *  - JSON body: { recipe_id }
+ *  - OR query param: ?recipe_id=...
  */
 app.delete("/", async (c) => {
   const userId = await getUserId(c);
   if (!userId) return c.json({ error: "Unauthorized" }, 401);
 
   const body = await readJson(c);
-  const recipe_id = body?.recipe_id;
+  const recipe_id = body?.recipe_id ?? c.req.query("recipe_id");
 
   if (!recipe_id) return c.json({ error: "Missing recipe_id" }, 400);
 

@@ -214,18 +214,14 @@ export default function App() {
     try {
       const token = await getFreshAccessToken();
 
-      const response = await fetchWithTimeout(
-        favoritesUrl,
-        {
-          method: "DELETE",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ recipe_id: recipeId }),
+      const response = await fetch(favoritesUrl, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-        8000
-      );
+        body: JSON.stringify({ recipe_id: recipeId }), // <-- wichtig
+      });
 
       const text = await response.text().catch(() => "");
       if (!response.ok) {
@@ -445,13 +441,6 @@ export default function App() {
   return (
     <ErrorBoundary>
       <Toaster position="top-center" richColors />
-
-      {/* Debug Overlay */}
-      <div className="fixed top-20 left-6 z-50 bg-white border p-3 rounded shadow text-sm max-w-md">
-        <div><b>favoritesLoading:</b> {String(favoritesLoading)}</div>
-        <div><b>favoritesError:</b> {favoritesError ?? "-"}</div>
-        <div><b>favoritesCount:</b> {favorites.length}</div>
-      </div>
 
       <div className={`flex h-screen overflow-hidden ${isMobile ? "flex-col" : ""}`}>
         {isMobile ? (
