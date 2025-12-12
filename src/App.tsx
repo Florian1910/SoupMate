@@ -66,15 +66,18 @@ const ErrorBoundary = ({ children }: { children: React.ReactNode }) => {
 };
 
 // ---------------------------
-// Helpers
+// fetch with timeout helper
 // ---------------------------
-const fetchWithTimeout = async (input: RequestInfo | URL, init: RequestInit, timeoutMs = 8000) => {
+const fetchWithTimeout = async (
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs = 8000
+) => {
   const controller = new AbortController();
   const id = window.setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const res = await fetch(input, { ...init, signal: controller.signal });
-    return res;
+    return await fetch(input, { ...init, signal: controller.signal });
   } finally {
     window.clearTimeout(id);
   }
@@ -83,11 +86,13 @@ const fetchWithTimeout = async (input: RequestInfo | URL, init: RequestInit, tim
 export default function App() {
   const [showLogin, setShowLogin] = useState(false);
   const [showProfileSetup, setShowProfileSetup] = useState(false);
+
   const [userId, setUserId] = useState<string | undefined>(undefined);
   const [accessToken, setAccessToken] = useState<string | undefined>(undefined);
   const [userName, setUserName] = useState<string | undefined>(undefined);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
   const [favorites, setFavorites] = useState<Recipe[]>([]);
   const [favoritesLoading, setFavoritesLoading] = useState(false);
   const [favoritesError, setFavoritesError] = useState<string | null>(null);
@@ -111,15 +116,31 @@ export default function App() {
   });
 
   // ---------------------------
-  // Favorites API (lokal)
+  // URLs
   // ---------------------------
   const favoritesUrl = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.favorites}`;
 
-  const loadFavoritesFromDb = async (token: string) => {
+  // ---------------------------
+  // Always get fresh token
+  // ---------------------------
+  const getFreshAccessToken = async (): Promise<string> => {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    const token = data.session?.access_token;
+    if (!token) throw new Error("No session token");
+    return token;
+  };
+
+  // ---------------------------
+  // Favorites
+  // ---------------------------
+  const loadFavoritesFromDb = async () => {
     setFavoritesLoading(true);
     setFavoritesError(null);
 
     try {
+      const token = await getFreshAccessToken();
+
       console.log("🔄 Loading favorites from:", favoritesUrl);
 
       const response = await fetchWithTimeout(
@@ -135,56 +156,38 @@ export default function App() {
       console.log("✅ Favorites response:", response.status, text);
 
       if (!response.ok) {
-        console.error("❌ Failed to load favorites:", response.status, text);
         setFavorites([]);
         setFavoritesError(`${response.status} ${text}`);
         return;
       }
 
-      if (!text.trim()) {
-        setFavorites([]);
-        return;
-      }
-
-      let data: any;
-      try {
-        data = JSON.parse(text);
-      } catch (err) {
-        console.error("❌ Favorites JSON parse error:", err, "Raw:", text);
-        setFavorites([]);
-        setFavoritesError("Invalid JSON from /favorites");
-        return;
-      }
-
+      const data = text ? JSON.parse(text) : {};
       setFavorites(Array.isArray(data.favorites) ? data.favorites : []);
     } catch (e: any) {
-      const msg =
-        e?.name === "AbortError"
-          ? "Favorites request timed out"
-          : String(e?.message ?? e);
-
       console.error("❌ Error loading favorites:", e);
       setFavorites([]);
-      setFavoritesError(msg);
+      setFavoritesError(String(e?.message ?? e));
     } finally {
       setFavoritesLoading(false);
     }
   };
 
   const addFavorite = async (recipe: Recipe) => {
-    if (!userId || !accessToken) {
+    if (!userId) {
       toast.error("Bitte melde dich an, um Favoriten zu speichern");
       return;
     }
 
     try {
+      const token = await getFreshAccessToken();
+
       const response = await fetchWithTimeout(
         favoritesUrl,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ recipe_id: recipe.id }),
         },
@@ -194,10 +197,10 @@ export default function App() {
       const text = await response.text().catch(() => "");
       if (!response.ok) {
         console.error("❌ Failed to add favorite:", response.status, text);
-        throw new Error(`Failed to add favorite: ${response.status}`);
+        throw new Error(text || `Failed to add favorite: ${response.status}`);
       }
 
-      setFavorites((prev) => (prev.some((r) => r.id === recipe.id) ? prev : [...prev, recipe]));
+      await loadFavoritesFromDb();
       toast.success(`${recipe.name} zu Favoriten hinzugefügt! ❤️`);
     } catch (e) {
       console.error("❌ Error adding favorite:", e);
@@ -206,16 +209,18 @@ export default function App() {
   };
 
   const removeFavorite = async (recipeId: string) => {
-    if (!userId || !accessToken) return;
+    if (!userId) return;
 
     try {
+      const token = await getFreshAccessToken();
+
       const response = await fetchWithTimeout(
         favoritesUrl,
         {
           method: "DELETE",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ recipe_id: recipeId }),
         },
@@ -225,10 +230,10 @@ export default function App() {
       const text = await response.text().catch(() => "");
       if (!response.ok) {
         console.error("❌ Failed to remove favorite:", response.status, text);
-        throw new Error(`Failed to remove favorite: ${response.status}`);
+        throw new Error(text || `Failed to remove favorite: ${response.status}`);
       }
 
-      setFavorites((prev) => prev.filter((f) => f.id !== recipeId));
+      await loadFavoritesFromDb();
       toast.success("Aus Favoriten entfernt");
     } catch (e) {
       console.error("❌ Error removing favorite:", e);
@@ -264,7 +269,7 @@ export default function App() {
   };
 
   // ---------------------------
-  // Auth init (darf NIE durch Profile/Favorites blockieren)
+  // Auth init
   // ---------------------------
   useEffect(() => {
     let mounted = true;
@@ -278,29 +283,23 @@ export default function App() {
         if (error) throw error;
 
         const session = data.session;
-
         if (!mounted) return;
 
         if (session?.user) {
-          console.log("✅ Existing session found:", session.user.id);
           setUserId(session.user.id);
           setAccessToken(session.access_token);
-
-          // NICHT awaiten -> UI bleibt nicht hängen
           loadUserProfile(session.user.id);
         } else {
-          console.log("ℹ️ No existing session found");
           setUserId(undefined);
           setAccessToken(undefined);
           setUserName(undefined);
+          setFavorites([]);
+          setShowProfileSetup(false);
         }
       } catch (e) {
         console.error("Error in auth initialization:", e);
       } finally {
-        if (mounted) {
-          console.log("✅ init finished -> setIsLoading(false)");
-          setIsLoading(false);
-        }
+        if (mounted) setIsLoading(false);
       }
     };
 
@@ -309,10 +308,12 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       console.log("🔐 Auth state changed:", event);
 
-      if (event === "SIGNED_IN" && session) {
+      if (event === "SIGNED_IN" && session?.user) {
         setUserId(session.user.id);
         setAccessToken(session.access_token);
-        loadUserProfile(session.user.id); // nicht awaiten
+        loadUserProfile(session.user.id);
+      } else if (event === "TOKEN_REFRESHED" && session) {
+        setAccessToken(session.access_token);
       } else if (event === "SIGNED_OUT") {
         setUserId(undefined);
         setAccessToken(undefined);
@@ -320,8 +321,6 @@ export default function App() {
         setFavorites([]);
         setChatHistory([]);
         setShowProfileSetup(false);
-      } else if (event === "TOKEN_REFRESHED" && session) {
-        setAccessToken(session.access_token);
       }
     });
 
@@ -331,11 +330,16 @@ export default function App() {
     };
   }, []);
 
-  // Favorites automatisch laden sobald Token vorhanden
+  // ---------------------------
+  // Load favorites when token changes (with guard)
+  // ---------------------------
+  const lastFavTokenRef = useRef<string | null>(null);
   useEffect(() => {
-    if (accessToken) {
-      loadFavoritesFromDb(accessToken);
-    }
+    if (!accessToken || accessToken.trim().length < 20) return;
+    if (lastFavTokenRef.current === accessToken) return;
+    lastFavTokenRef.current = accessToken;
+
+    loadFavoritesFromDb();
   }, [accessToken]);
 
   // ---------------------------
@@ -345,7 +349,7 @@ export default function App() {
     setUserId(newUserId);
     setAccessToken(newAccessToken);
     setShowLogin(false);
-    loadUserProfile(newUserId); // nicht awaiten
+    loadUserProfile(newUserId);
   };
 
   const handleProfileComplete = (fullName: string) => {
@@ -365,7 +369,7 @@ export default function App() {
   };
 
   // ---------------------------
-  // Filters + Search handling
+  // Filters + Search
   // ---------------------------
   const handleFilterChange = useCallback((newFilters: RecipeFilters) => {
     setFilters(newFilters);
@@ -442,14 +446,12 @@ export default function App() {
     <ErrorBoundary>
       <Toaster position="top-center" richColors />
 
-      {/* kleines Debug Overlay (kannst du später löschen) */}
-      {(favoritesLoading || favoritesError) && (
-        <div className="fixed top-20 right-6 z-50 bg-white border p-3 rounded shadow text-sm max-w-md">
-          <div><b>favoritesLoading:</b> {String(favoritesLoading)}</div>
-          <div><b>favoritesError:</b> {favoritesError ?? "-"}</div>
-          <div><b>favoritesCount:</b> {favorites.length}</div>
-        </div>
-      )}
+      {/* Debug Overlay */}
+      <div className="fixed top-20 left-6 z-50 bg-white border p-3 rounded shadow text-sm max-w-md">
+        <div><b>favoritesLoading:</b> {String(favoritesLoading)}</div>
+        <div><b>favoritesError:</b> {favoritesError ?? "-"}</div>
+        <div><b>favoritesCount:</b> {favorites.length}</div>
+      </div>
 
       <div className={`flex h-screen overflow-hidden ${isMobile ? "flex-col" : ""}`}>
         {isMobile ? (

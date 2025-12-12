@@ -11,7 +11,10 @@ function getBearerToken(auth?: string) {
 
 async function getUserId(c: any) {
   const token = getBearerToken(c.req.header("Authorization"));
-  if (!token) return null;
+  if (!token) {
+    console.log("No Authorization header / Bearer token");
+    return null;
+  }
 
   const { data, error } = await supabase.auth.getUser(token);
   if (error) {
@@ -22,7 +25,6 @@ async function getUserId(c: any) {
   return data?.user?.id ?? null;
 }
 
-// Hilfsfunktion: JSON body safe lesen
 async function readJson(c: any) {
   try {
     return await c.req.json();
@@ -32,9 +34,9 @@ async function readJson(c: any) {
 }
 
 /**
- * GET /  (wird unter /favorites gemountet)
- * Liefert: { favorites: Recipe[] }
- * Funktioniert OHNE FK Relationship (2 Queries)
+ * GET /  (mounted under /favorites)
+ * Returns: { favorites: Recipe[] }
+ * Works WITHOUT FK relationship (2 queries)
  */
 app.get("/", async (c) => {
   const userId = await getUserId(c);
@@ -51,26 +53,26 @@ app.get("/", async (c) => {
     return c.json({ error: favErr.message }, 500);
   }
 
-  const ids = (favRows ?? []).map((r: any) => r.recipe_id).filter(Boolean);
+  const ids: string[] = (favRows ?? []).map((r: any) => r.recipe_id).filter(Boolean);
 
   if (ids.length === 0) {
     return c.json({ favorites: [] });
   }
 
-  // 2) recipes holen
+  // 2) Rezepte holen (PK ist recipe_id)
   const { data: recipes, error: recErr } = await supabase
     .from("test_recipes")
     .select("*")
     .in("recipe_id", ids);
 
   if (recErr) {
-    console.error("recipes select error:", recErr);
+    console.error("test_recipes select error:", recErr);
     return c.json({ error: recErr.message }, 500);
   }
 
-  // Optional: gleiche Reihenfolge wie ids (nice-to-have)
-  const byId = new Map((recipes ?? []).map((r: any) => [r.id, r]));
-  const ordered = ids.map((id: string) => byId.get(id)).filter(Boolean);
+  // Optional: gleiche Reihenfolge wie ids (WICHTIG: key ist recipe_id!)
+  const byId = new Map<string, any>((recipes ?? []).map((r: any) => [r.recipe_id, r]));
+  const ordered = ids.map((id) => byId.get(id)).filter(Boolean);
 
   return c.json({ favorites: ordered });
 });
