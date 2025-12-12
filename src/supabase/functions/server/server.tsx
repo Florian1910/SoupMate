@@ -30,6 +30,8 @@ app.route('/search', searchRoutes);
 app.route('/favorites', favoritesRoutes);
 
 // Root route
+app.get('/favorites', (c) => c.redirect('/favorites/'));
+
 app.get('/', (c) => c.json({
     ok: true,
     msg: "SoupMate backend running 🥣",
