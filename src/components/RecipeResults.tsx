@@ -6,7 +6,6 @@ import { Badge } from "./ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./ui/tabs";
 import { motion, AnimatePresence } from "motion/react";
 import { supabase } from "../utils/supabase/client";
-import { addFavorite } from "../favoritesApi";
 
 
 
@@ -233,7 +232,7 @@ export function RecipeResults({ chatHistory, onAddToFavorites, onBack }: RecipeR
                                         }
 
                                         try {
-                                          await addFavorite(recipe.id, token);
+                                          onAddToFavorites(recipe);
                                           console.log("❤️ Favorit gespeichert:", recipe.id);
                                         } catch (err) {
                                           console.error(err);
