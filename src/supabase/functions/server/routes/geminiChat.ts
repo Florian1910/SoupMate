@@ -181,3 +181,106 @@ geminiRoutes.post('/prepare', async (c) => {
         return c.json({ ok: false, error: err.message ?? 'Internal error' }, 500)
     }
 })
+
+// In routes/geminiChat.ts (zusätzlich zu / und /prepare)
+import { config } from '../config/environment.ts';
+
+// Hilfsfunktion: Chat-Text (Deutsch) aus Suchresultaten bauen
+function renderGermanAnswer(promptDe: string, recipes: any[]) {
+    if (!recipes || recipes.length === 0) {
+        return `Ich habe leider keine passenden Rezepte zu deiner Anfrage gefunden: „${promptDe}“. 
+Möchtest du die Filter lockern (z. B. mehr Gesamtzeit oder weniger Einschränkungen bei Zutaten/Allergien)?`;
+    }
+
+    const bullets = recipes.map((r: any, i: number) => {
+        const time = r.total_time ? `${r.total_time} min` : 'k. A.';
+        const diet =
+            (Array.isArray(r.diets) && r.diets.length > 0 ? r.diets.join(' | ')
+                : r.diet ? r.diet
+                    : (r.vegan && 'vegan') || (r.vegetarian && 'vegetarisch') || '—');
+
+        const desc = (r.description || '').replace(/\s+/g, ' ').trim();
+        const short = desc ? (desc.length > 160 ? desc.slice(0, 160) + '…' : desc) : 'Keine Beschreibung verfügbar';
+
+        const img = r.image_url ? `🖼️ ${r.image_url}` : '';
+        const line2 = `⏱️ ${time}    🥗 ${diet}    ⭐ ${typeof r.score === 'number' ? r.score.toFixed(3) : '—'}`;
+
+        return `**${i + 1}. ${r.name || 'Ohne Titel'}**
+${line2}
+${short}
+${img}`.trim();
+    });
+
+    return `Hier sind passende Vorschläge zu: „${promptDe}“\n\n${bullets.join('\n\n')}\n\nSag mir gern, ob ich die Suche verfeinern soll (z. B. andere Zutaten, kürzere Zeit oder bestimmte Küche).`;
+}
+
+geminiRoutes.post('/rag', async (c) => {
+    try {
+        const { prompt, k = 5 } = await c.req.json().catch(() => ({}));
+        if (!prompt || typeof prompt !== 'string') {
+            return c.json({ ok: false, error: "Body must include 'prompt' (string)" }, 400);
+        }
+
+        // 1) /gemini/prepare aufrufen (intern, gleicher Server)
+        const baseUrl = `http://localhost:${config.app.port}`;
+        const prepRes = await fetch(`${baseUrl}/gemini/prepare`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt })
+        });
+
+        if (!prepRes.ok) {
+            const err = await prepRes.text();
+            return c.json({ ok: false, step: 'prepare', error: err || 'prepare failed' }, 502);
+        }
+
+        const prepJson: any = await prepRes.json();
+        if (!prepJson?.ok || !prepJson?.searchRequest?.payload) {
+            return c.json({ ok: false, step: 'prepare', error: 'Malformed prepare response' }, 502);
+        }
+
+        // 2) /search Payload übernehmen und k ggf. überschreiben
+        const searchPayload = prepJson.searchRequest.payload;
+        if (typeof k === 'number' && k > 0) {
+            searchPayload.k = k;
+        }
+
+        // 3) /search callen
+        const searchRes = await fetch(`${baseUrl}/search`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(searchPayload)
+        });
+
+        if (!searchRes.ok) {
+            const err = await searchRes.text();
+            return c.json({ ok: false, step: 'search', error: err || 'search failed' }, 502);
+        }
+
+        const searchJson: any = await searchRes.json();
+        const recipes = searchJson?.recipes ?? [];
+
+        // 4) Chat-Antwort (deutsch) rendern
+        const answer = renderGermanAnswer(prepJson?.nlp?.original_de ?? prompt, recipes);
+
+        // 5) Gesamtresponse
+        return c.json({
+            ok: true,
+            steps: {
+                nlp: prepJson.nlp,
+                searchPayload,
+                searchStats: {
+                    count: searchJson?.count ?? recipes.length,
+                    responseTime: searchJson?.responseTime,
+                    filterSummary: searchJson?.filterSummary,
+                    searchMethod: searchJson?.searchMethod
+                }
+            },
+            recipes,        // Rohdaten (falls Frontend Card-View rendert)
+            answer_text: answer // Chatbot-Textantwort (deutsch)
+        });
+    } catch (err: any) {
+        console.error('/gemini/rag error:', err);
+        return c.json({ ok: false, error: err.message ?? 'Internal error' }, 500);
+    }
+});
