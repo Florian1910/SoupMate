@@ -21,3 +21,18 @@ Content-Type: application/json
 {
 "prompt": "Hast du ein leichtes Abendessen unter 500 Kalorien? Vielleicht asiatisch, mit Huhn und Reisnudeln."
 }
+### 3) Orchestrierte Suche + Antwort
+POST http://localhost:8000/gemini/prepare
+Content-Type: application/json
+
+{
+  "prompt": "Gib mir ein Rezept für eine Tomatensuppe."
+}
+### 4) 2) RAG-Endpunkt: Prepare -> Search -> Chat-Antwort,
+POST http://localhost:8000/gemini/rag
+Content-Type: application/json
+
+{
+  "prompt": "Ich suche eine Suppe mit Tomaten.",
+  "k": 5
+}
