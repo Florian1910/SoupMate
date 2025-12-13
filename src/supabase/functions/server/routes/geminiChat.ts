@@ -30,6 +30,30 @@ geminiRoutes.post('/', async (c) => {
 });
 
 /**
+ * Difficulty aus Nutzer-Prompt ableiten (Heuristik)
+ * 0 = kein Filter; 1..5 = gewünschte Schwierigkeit
+ */
+function inferDifficultyFromPrompt(prompt: string): number {
+    const p = (prompt || '').toLowerCase();
+
+    // Explizit "schwierigkeit: X" oder "difficulty X"
+    const explicit = p.match(/\b(schwierigkeit|difficulty)\s*[:=]?\s*(1|2|3|4|5)\b/);
+    if (explicit) return parseInt(explicit[2], 10);
+
+    // Deutsche Signale
+    if (/\b(einfach|simpel|anfänger|anfängerfreundlich|leicht)\b/.test(p)) return 2;
+    if (/\b(mittel|durchschnittlich|normal)\b/.test(p)) return 3;
+    if (/\b(anspruchsvoll|aufwendig|kompliziert|schwer|fortgeschritten)\b/.test(p)) return 5;
+
+    // Englische Signale
+    if (/\b(easy|beginner|simple|quick and easy)\b/.test(p)) return 2;
+    if (/\b(medium|moderate|normal)\b/.test(p)) return 3;
+    if (/\b(hard|advanced|complex|challenging|elaborate)\b/.test(p)) return 5;
+
+    return 0; // kein klares Signal
+}
+
+/**
  * NLP-Vorbereitung – Deutsch → Englisch, Keywords, Filter
  */
 geminiRoutes.post('/prepare', async (c) => {
@@ -93,13 +117,16 @@ geminiRoutes.post('/prepare', async (c) => {
         const diet = (f.diet && f.diet[0]) || 'alle';
         const timeMax = f.time_max ?? 240;
 
+        // 🔎 NEU: Difficulty aus Nutzerprompt ableiten
+        const inferredDifficulty = inferDifficultyFromPrompt(prompt);
+
         const searchPayload = {
             query: parsed.english_prompt,
             type: 'text',
             k: 5,
             filters: {
                 dietType: diet,
-                difficulty: 0,
+                difficulty: inferredDifficulty,   // 👈 hier wird die abgeleitete Schwierigkeit gesetzt
                 workTime: [0, 120],
                 totalTime: [0, timeMax],
                 allergies,
@@ -205,7 +232,6 @@ async function translateRecipesToGermanBatch(
     try {
         json = JSON.parse(result.response.text());
     } catch {
-        // Robustheit: versuche JSON zu extrahieren
         const txt = result.response.text();
         const m = txt.match(/\{[\s\S]*\}$/);
         if (!m) return {};
@@ -347,17 +373,32 @@ geminiRoutes.post('/rag', async (c) => {
         const searchJson: any = await searchRes.json();
         let recipes = searchJson?.recipes ?? [];
 
-        // 🔁 Fallback: Wenn zu wenig Treffer, 2. Suche ohne Zutatenfilter
-        if (recipes.length < Math.min(k, 3) && searchPayload.filters?.ingredients) {
-            const payload2 = { ...searchPayload, filters: { ...searchPayload.filters, ingredients: '' } };
-            const res2 = await fetch(`${baseUrl}/search`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload2)
-            });
-            if (res2.ok) {
-                const j2 = await res2.json();
-                if ((j2?.recipes?.length ?? 0) > recipes.length) recipes = j2.recipes;
+        // Kein Fallback, wenn Zutatenfilter vorhanden
+        const hasRequiredIngredients =
+            !!(searchPayload.filters?.ingredients && searchPayload.filters.ingredients.trim() !== "");
+
+        if (recipes.length < Math.min(k, 3)) {
+            if (hasRequiredIngredients) {
+                console.log(
+                    `🛑 Kein Fallback ausgeführt, da Pflicht-Zutatenfilter aktiv ist: "${searchPayload.filters.ingredients}"`
+                );
+            } else {
+                console.log("⚠️ Wenig Ergebnisse, starte Fallback-Suche ohne Zutatenfilter ...");
+
+                const fallbackPayload = {
+                    ...searchPayload,
+                    filters: { ...searchPayload.filters, ingredients: "" },
+                };
+
+                // Hinweis: hier wurde zuvor ein nicht definiertes SEARCH_API verwendet.
+                const fallbackRes = await fetch(`${baseUrl}/search`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(fallbackPayload),
+                });
+
+                const fallbackJson = await fallbackRes.json();
+                recipes = fallbackJson.recipes ?? recipes;
             }
         }
 
