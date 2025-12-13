@@ -29,7 +29,7 @@ app.route('/health', healthRoutes);
 app.route('/recipes', recipeRoutes);
 app.route('/search', searchRoutes);
 app.route('/favorites', favoritesRoutes);
-app.route('/gemini', geminiRoutes)
+app.route('/gemini', geminiRoutes);
 
 // Root route
 app.get('/favorites', (c) => c.redirect('/favorites/'));

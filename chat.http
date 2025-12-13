@@ -5,3 +5,19 @@ Content-Type: application/json
 {
   "prompt": "Sag mir einen kurzen Fun Fact über Suppe."
 }
+
+### 1) Übersetzen + Keywords extrahieren
+POST http://localhost:8000/gemini/prepare
+Content-Type: application/json
+
+{
+"prompt": "Ich suche eine schnelle, vegane Suppe mit Tomaten und Linsen – bitte ohne Sellerie."
+}
+
+### 2) Noch ein Beispiel (mit Zeit/Kalorien)
+POST http://localhost:8000/gemini/prepare
+Content-Type: application/json
+
+{
+"prompt": "Hast du ein leichtes Abendessen unter 500 Kalorien? Vielleicht asiatisch, mit Huhn und Reisnudeln."
+}
