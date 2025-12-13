@@ -33,6 +33,6 @@ POST http://localhost:8000/gemini/rag
 Content-Type: application/json
 
 {
-  "prompt": "Ich suche eine Suppe mit Tomaten.",
+  "prompt": "Ich suche Suppen Rezepte mit Linsen welche leicht zu machen sind.",
   "k": 5
 }
