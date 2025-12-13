@@ -1,0 +1,7 @@
+### Anfrage an deinen lokalen Server auf Port 8000
+POST http://localhost:8000/gemini
+Content-Type: application/json
+
+{
+  "prompt": "Sag mir einen kurzen Fun Fact über Suppe."
+}

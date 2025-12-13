@@ -3,6 +3,7 @@
     "hono": "jsr:@hono/hono",
     "hono/cors": "jsr:@hono/hono/cors",
     "hono/logger": "jsr:@hono/hono/logger",
-    "@supabase/supabase-js": "npm:@supabase/supabase-js"
+    "@supabase/supabase-js": "npm:@supabase/supabase-js",
+    "@google/generative-ai": "npm:@google/generative-ai"
   }
 }
