@@ -384,7 +384,12 @@ export default function App() {
     setChatHistory((prev) => [
       ...prev,
       { type: "user", query: results.query, timestamp: new Date() },
-      { type: "ai", recipes: finalUniqueRecipes, timestamp: new Date() },
+      { 
+        type: "ai", 
+        recipes: finalUniqueRecipes, 
+        geminiAnswer: results.geminiAnswer, // LLM-generierte Antwort (wie in chat.http)
+        timestamp: new Date() 
+      },
     ]);
   };
 
