@@ -2,10 +2,7 @@ import { Search, Clock, X, History, Loader2 } from "lucide-react";
 import { Input } from "./ui/input";
 import { useState, useEffect, useRef } from "react";
 import { RecipeFilters } from "./Sidebar";
-import { API_CONFIG, DEV_MODE } from '../config';
 import { toast } from "sonner@2.0.3";
-import { publicAnonKey } from '../utils/supabase/info';
-import { supabase } from '../utils/supabase/client';
 import { geminiRag } from '../geminiApi';
 
 interface SearchBarProps {
@@ -93,7 +90,6 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
           description: r.description ?? '',
           fullDescription: r.fullDescription ?? (Array.isArray(r.instructions) ? r.instructions.join('\n') : r.instructions),
           difficulty: r.difficulty ?? 2,
-          workTime: r.work_time ?? r.workTime ?? undefined,
           totalTime: r.total_time ?? r.totalTime ?? undefined,
           servings: r.servings ?? undefined,
           ingredients: normalizedIngredients,
