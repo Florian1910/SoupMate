@@ -344,18 +344,14 @@ class EmbeddingService:
                         # Clamp den Wert zwischen 0 und 1
                         weighted_similarity = max(0.0, min(1.0, weighted_similarity))
 
-                        # **WICHTIG: Transformation anwenden und speichern!**
-                        transformed_similarity = weighted_similarity * 1.5
-                        transformed_similarity = min(1.0, transformed_similarity)  # Nicht über 1.0
+                        # ✅ KEIN Boost mehr
+                        similarity_map[str(recipe_id)] = weighted_similarity
 
-                        # ✅ Jetzt den TRANSFORMIERTEN Score speichern!
-                        similarity_map[str(recipe_id)] = transformed_similarity
 
                         print(f"   📊 Recipe {recipe_id}:", file=sys.stderr)
                         print(f"      - Best Match: {best_match:.4f}", file=sys.stderr)
                         print(f"      - Avg Match: {avg_match:.4f}", file=sys.stderr)
                         print(f"      - Weighted (Raw): {weighted_similarity:.4f}", file=sys.stderr)
-                        print(f"      - Transformed (Final): {transformed_similarity:.4f}", file=sys.stderr)
                         print(f"      - Ingredient Count: {ingredient_count}", file=sys.stderr)
 
             return similarity_map

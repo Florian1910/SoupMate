@@ -35,6 +35,7 @@ interface ChatMessage {
   type: 'user' | 'ai';
   query?: string;
   recipes?: Recipe[];
+  geminiAnswer?: string; // LLM-generierte Antwort (wie in chat.http)
   timestamp: Date;
 }
 
@@ -108,236 +109,251 @@ export function RecipeResults({ chatHistory, onAddToFavorites, onBack }: RecipeR
                 // AI Response with Multiple Recipe Cards
                 <div className="flex justify-start">
                   <div className="max-w-4xl w-full space-y-3">
-                    {message.recipes.map((recipe) => (
+                    {/* Freundliche LLM-Message (nur der erste Teil, wie in Screenshot 2) */}
+                    {message.geminiAnswer && (
+                      <div className="mb-4">
+                        <div className="flex items-start gap-2">
+                          <MessageCircle size={18} className="mt-0.5 flex-shrink-0 text-primary" />
+                          <p className="text-sm text-foreground">
+                            {(() => {
+                              // Extrahiere nur die freundliche Einleitung (bis zum ersten Rezept)
+                              const answer = message.geminiAnswer;
+                              
+                              // Suche nach dem ersten Rezept (Format: **1. Titel**)
+                              const firstRecipeMatch = answer.match(/\*\*(\d+)\./);
+                              if (firstRecipeMatch && firstRecipeMatch.index) {
+                                const intro = answer.substring(0, firstRecipeMatch.index).trim();
+                                // Entferne Markdown-Formatierung und extrahiere nur den Text
+                                return intro
+                                  .replace(/\*\*/g, '')
+                                  .replace(/„/g, '"')
+                                  .replace(/"/g, '"')
+                                  .trim();
+                              }
+                              
+                              // Fallback: Erste Zeile oder bis zu einem bestimmten Punkt
+                              const lines = answer.split('\n');
+                              const firstLine = lines[0]?.trim() || '';
+                              if (firstLine.length > 0 && firstLine.length < 200) {
+                                return firstLine.replace(/\*\*/g, '').trim();
+                              }
+                              
+                              // Letzter Fallback: Erste 200 Zeichen
+                              return answer.substring(0, 200).replace(/\*\*/g, '').trim();
+                            })()}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    {message.recipes.map((recipe, recipeIndex) => (
                       <motion.div
                         key={recipe.id}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.3 }}
                       >
+                        {/* Spoonacular-Format: Kompakte Rezept-Karte mit Aufklapp-Funktion */}
                         <Card className="bg-gradient-to-br from-white to-orange-50/30 border-2 border-primary/20 shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300">
-                          <div className="flex flex-col md:flex-row">
-                            {/* 🔥 KLEINERES BILD - Nur auf großen Bildschirmen */}
+                          {/* Kompakter Header - Immer sichtbar */}
+                          <div 
+                            className="flex gap-4 p-4 cursor-pointer hover:bg-orange-50/30 transition-colors"
+                            onClick={() => toggleRecipe(recipe.id)}
+                          >
+                            {/* Bild links */}
                             {recipe.imageUrl && (
-                              <div className="md:w-24 md:flex-shrink-0 md:flex md:items-start md:justify-center md:pt-4 md:pl-4">
+                              <div className="flex-shrink-0">
                                 <img
                                   src={recipe.imageUrl}
                                   alt={recipe.name}
-                                  className="w-16 h-16 md:w-20 md:h-20 object-cover rounded-lg border-2 border-primary/20 shadow-md"
+                                  className="w-24 h-24 object-cover rounded-lg border-2 border-primary/20 shadow-md"
                                 />
                               </div>
                             )}
 
-                            {/* Rezept Inhalt */}
-                            <div className="flex-1">
-                              {/* Compact Card Header - Always Visible */}
-                              <div
-                                className="p-4 cursor-pointer hover:bg-orange-50/30 transition-colors"
-                                onClick={() => toggleRecipe(recipe.id)}
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="flex-1 space-y-2">
-                                    {/* Title and Rating */}
-                                    <div className="flex items-center gap-3 flex-wrap">
-                                      <h3 className="text-lg bg-gradient-to-r from-[#ff6b35] to-[#ff8c5a] bg-clip-text text-transparent">
-                                        {recipe.name}
-                                      </h3>
-                                      <div className="flex items-center gap-0.5">
-                                        {[...Array(5)].map((_, i) => (
-                                          <Star
-                                            key={i}
-                                            size={14}
-                                            className={i < recipe.difficulty ? "text-primary fill-primary" : "text-primary/30"}
-                                          />
-                                        ))}
+                            {/* Rezept-Inhalt */}
+                            <div className="flex-1 min-w-0">
+                              {/* Titel und Rating */}
+                              <div className="flex items-start justify-between gap-3 mb-2">
+                                <div className="flex-1">
+                                  <h3 className="text-lg font-semibold bg-gradient-to-r from-[#ff6b35] to-[#ff8c5a] bg-clip-text text-transparent mb-1">
+                                    {recipeIndex + 1}. {recipe.name}
+                                  </h3>
+                                  <div className="flex items-center gap-3 text-xs text-muted-foreground mb-2">
+                                    {recipe.totalTime && (
+                                      <div className="flex items-center gap-1">
+                                        <Clock size={14} className="text-primary" />
+                                        <span>{recipe.totalTime}m</span>
                                       </div>
-                                    </div>
-
-                                    {/* Quick Info */}
-                                    <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
-                                      {recipe.workTime && (
-                                        <div className="flex items-center gap-1">
-                                          <ChefHat size={14} className="text-primary" />
-                                          <span>{recipe.workTime}m</span>
-                                        </div>
-                                      )}
-                                      {recipe.totalTime && (
-                                        <div className="flex items-center gap-1">
-                                          <Clock size={14} className="text-primary" />
-                                          <span>{recipe.totalTime}m</span>
-                                        </div>
-                                      )}
-                                      {recipe.servings && (
-                                        <div className="flex items-center gap-1">
-                                          <Users size={14} className="text-primary" />
-                                          <span>{recipe.servings}P</span>
-                                        </div>
-                                      )}
-                                    </div>
-
-                                    {/* Short Description */}
-                                    <p className="text-sm text-muted-foreground line-clamp-2">{recipe.description}</p>
-
-                                    {/* Tags */}
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {recipe.isVegan && (
-                                        <Badge className="bg-gradient-to-r from-green-500 to-green-600 text-white border-none text-xs">
-                                          🌱 Vegan
-                                        </Badge>
-                                      )}
-                                      {recipe.isVegetarian && !recipe.isVegan && (
-                                        <Badge className="bg-gradient-to-r from-green-400 to-green-500 text-white border-none text-xs">
-                                          🥬 Vegetarisch
-                                        </Badge>
-                                      )}
-                                      {recipe.allergens && recipe.allergens.length > 0 && recipe.allergens.slice(0, 2).map((allergen, idx) => (
-                                        <Badge key={idx} variant="outline" className="text-xs border-orange-300 text-orange-700">
-                                          <AlertCircle size={10} className="mr-1" />
-                                          {allergen}
-                                        </Badge>
-                                      ))}
-                                      {recipe.allergens && recipe.allergens.length > 2 && (
-                                        <Badge variant="outline" className="text-xs border-orange-300 text-orange-700">
-                                          +{recipe.allergens.length - 2}
-                                        </Badge>
-                                      )}
-                                    </div>
-
-                                    {/* 🔥 NÄHRWERTE - Kompakt angezeigt */}
-                                    {(recipe.calories || recipe.protein) && (
-                                      <div className="pt-2 border-t border-primary/10">
-                                        <h4 className="font-semibold text-xs mb-1">Nutrition (per serving):</h4>
-                                        <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                                          {recipe.calories && <span>🔥 {recipe.calories} kcal</span>}
-                                          {recipe.protein && <span>💪 {recipe.protein}g Protein</span>}
-                                          {recipe.carbohydrates && <span>🌾 {recipe.carbohydrates}g Carbs</span>}
-                                          {recipe.fat && <span>🥑 {recipe.fat}g Fat</span>}
-                                        </div>
+                                    )}
+                                    {(recipe.isVegan || recipe.isVegetarian) && (
+                                      <div className="flex items-center gap-1">
+                                        <Utensils size={14} className="text-primary" />
+                                        <span>{recipe.isVegan ? 'vegan' : 'vegetarisch'}</span>
                                       </div>
                                     )}
                                   </div>
-
-                                  {/* Right Side: Favorite Button and Expand Icon */}
-                                  <div className="flex items-center gap-2 flex-shrink-0">
-                                    <Button
-                                      onClick={async (e) => {
-                                        e.stopPropagation();
-
-                                        const { data } = await supabase.auth.getSession();
-                                        const token = data.session?.access_token;
-
-                                        if (!token) {
-                                          alert("Bitte einloggen, um Favoriten zu speichern");
-                                          return;
-                                        }
-
-                                        try {
-                                          onAddToFavorites(recipe);
-                                          console.log("❤️ Favorit gespeichert:", recipe.id);
-                                        } catch (err) {
-                                          console.error(err);
-                                          alert("Favorit konnte nicht gespeichert werden");
-                                        }
-                                      }}
-                                      variant="ghost"
-                                      size="icon"
-                                    >
-                                      <Heart size={18} />
-                                    </Button>
-
-                                    <div className="text-primary">
-                                      {expandedRecipeId === recipe.id ? (
-                                        <ChevronUp size={20} />
-                                      ) : (
-                                        <ChevronDown size={20} />
-                                      )}
-                                    </div>
-                                  </div>
+                                </div>
+                                {/* Rating Stars */}
+                                <div className="flex items-center gap-0.5 flex-shrink-0">
+                                  {[...Array(5)].map((_, i) => (
+                                    <Star
+                                      key={i}
+                                      size={14}
+                                      className={i < Math.round(recipe.difficulty) ? "text-primary fill-primary" : "text-primary/30"}
+                                    />
+                                  ))}
                                 </div>
                               </div>
 
-                              {/* Expanded Details */}
-                              <AnimatePresence>
-                                {expandedRecipeId === recipe.id && (
-                                  <motion.div
-                                    initial={{ height: 0, opacity: 0 }}
-                                    animate={{ height: "auto", opacity: 1 }}
-                                    exit={{ height: 0, opacity: 0 }}
-                                    transition={{ duration: 0.3 }}
-                                    className="overflow-hidden"
-                                  >
-                                    <div className="px-4 pb-4 border-t border-primary/10">
-                                      <Tabs defaultValue="ingredients" className="w-full mt-4">
-                                        <TabsList className="grid w-full grid-cols-3 bg-orange-50/50">
-                                          <TabsTrigger value="description" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-white">
-                                            Beschreibung
-                                          </TabsTrigger>
-                                          <TabsTrigger value="ingredients" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-white">
-                                            Zutaten
-                                          </TabsTrigger>
-                                          <TabsTrigger value="instructions" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-white">
-                                            Anleitung
-                                          </TabsTrigger>
-                                        </TabsList>
+                              {/* Beschreibung - Vollständig angezeigt */}
+                              <p className="text-sm text-muted-foreground mb-3">
+                                {recipe.description || recipe.fullDescription}
+                              </p>
 
-                                        <TabsContent value="description" className="mt-3 space-y-2">
-                                          {recipe.fullDescription && (
-                                            <div className="bg-white/50 rounded-lg p-3 border border-primary/10">
-                                              <p className="text-sm text-muted-foreground leading-relaxed">{recipe.fullDescription}</p>
-                                            </div>
-                                          )}
-                                        </TabsContent>
+                              {/* Nutrition (per serving) - Kompakt wie in Screenshot 1 */}
+                              {(recipe.calories || recipe.protein) && (
+                                <div className="mb-3">
+                                  <h4 className="font-semibold text-xs mb-1.5">Nutrition (per serving):</h4>
+                                  <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                                    {recipe.calories && <span>{recipe.calories} kcal</span>}
+                                    {recipe.protein && <span>{recipe.protein}g Protein</span>}
+                                    {recipe.carbohydrates && <span>{recipe.carbohydrates}g Carbs</span>}
+                                    {recipe.fat && <span>{recipe.fat}g Fat</span>}
+                                  </div>
+                                </div>
+                              )}
 
-                                        <TabsContent value="ingredients" className="mt-3 space-y-2">
-                                          <div className="bg-white/50 rounded-lg p-3 border border-primary/10">
-                                            {recipe.ingredients.length > 0 ? (
-                                              <ul className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
-                                                {recipe.ingredients.map((ingredient, idx) => {
-                                                  // 🔥 BEHANDLE SOWOHL STRINGS ALS OBJEKTE
-                                                  const displayText = typeof ingredient === 'string'
-                                                    ? ingredient
-                                                    : ingredient.display || ingredient.name || String(ingredient);
-
-                                                  return (
-                                                    <li key={idx} className="flex items-start gap-2 text-sm">
-                                                      <span className="text-primary mt-0.5">•</span>
-                                                      <span className="text-muted-foreground">{displayText}</span>
-                                                    </li>
-                                                  );
-                                                })}
-                                              </ul>
-                                            ) : (
-                                              <p className="text-sm text-muted-foreground italic text-center py-2">
-                                                Keine Zutateninformationen verfügbar
-                                              </p>
-                                            )}
-                                          </div>
-                                        </TabsContent>
-
-                                        <TabsContent value="instructions" className="mt-3 space-y-2">
-                                          <div className="space-y-2">
-                                            {recipe.instructions.map((instruction, idx) => (
-                                              <div
-                                                key={idx}
-                                                className="flex gap-2 p-2.5 bg-white/50 rounded-lg border border-primary/10"
-                                              >
-                                                <div className="flex-shrink-0 w-6 h-6 bg-gradient-to-r from-[#ff6b35] to-[#ff8c5a] text-white rounded-full flex items-center justify-center text-xs">
-                                                  {idx + 1}
-                                                </div>
-                                                <p className="flex-1 text-sm text-muted-foreground leading-relaxed">
-                                                  {instruction}
-                                                </p>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        </TabsContent>
-                                      </Tabs>
-                                    </div>
-                                  </motion.div>
+                              {/* Tags */}
+                              <div className="flex flex-wrap gap-1.5 mb-2">
+                                {recipe.isVegan && (
+                                  <Badge className="bg-gradient-to-r from-green-500 to-green-600 text-white border-none text-xs">
+                                    Vegan
+                                  </Badge>
                                 )}
-                              </AnimatePresence>
+                                {recipe.isVegetarian && !recipe.isVegan && (
+                                  <Badge className="bg-gradient-to-r from-green-400 to-green-500 text-white border-none text-xs">
+                                    Vegetarisch
+                                  </Badge>
+                                )}
+                                {recipe.allergens && recipe.allergens.length > 0 && recipe.allergens.map((allergen, idx) => (
+                                  <Badge key={idx} variant="outline" className="text-xs border-orange-300 text-orange-700">
+                                    {allergen}
+                                  </Badge>
+                                ))}
+                              </div>
+
+                              {/* Favorite Button und Expand Icon */}
+                              <div className="flex items-center justify-between mt-2">
+                                <Button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    const { data } = await supabase.auth.getSession();
+                                    const token = data.session?.access_token;
+                                    if (!token) {
+                                      alert("Bitte einloggen, um Favoriten zu speichern");
+                                      return;
+                                    }
+                                    try {
+                                      onAddToFavorites(recipe);
+                                    } catch (err) {
+                                      console.error(err);
+                                      alert("Favorit konnte nicht gespeichert werden");
+                                    }
+                                  }}
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-primary hover:text-primary hover:bg-primary/10"
+                                >
+                                  <Heart size={16} className="mr-1" />
+                                  Zu Favoriten
+                                </Button>
+                                
+                                {/* Expand/Collapse Icon */}
+                                <div className="text-primary">
+                                  {expandedRecipeId === recipe.id ? (
+                                    <ChevronUp size={20} />
+                                  ) : (
+                                    <ChevronDown size={20} />
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           </div>
+
+                          {/* Aufklappbare Details: Zutaten und Anleitung */}
+                          <AnimatePresence>
+                            {expandedRecipeId === recipe.id && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.3 }}
+                                className="overflow-hidden"
+                              >
+                                <div className="px-4 pb-4 border-t border-primary/10">
+                                  <Tabs defaultValue="ingredients" className="w-full mt-4">
+                                    <TabsList className="grid w-full grid-cols-2 bg-orange-50/50">
+                                      <TabsTrigger value="ingredients" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-white">
+                                        Zutaten
+                                      </TabsTrigger>
+                                      <TabsTrigger value="instructions" className="text-xs data-[state=active]:bg-primary data-[state=active]:text-white">
+                                        Zubereitung
+                                      </TabsTrigger>
+                                    </TabsList>
+
+                                    <TabsContent value="ingredients" className="mt-3 space-y-2">
+                                      <div className="bg-white/50 rounded-lg p-3 border border-primary/10">
+                                        {recipe.ingredients.length > 0 ? (
+                                          <ul className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                                            {recipe.ingredients.map((ingredient, idx) => {
+                                              const displayText = typeof ingredient === 'string'
+                                                ? ingredient
+                                                : ingredient.display || ingredient.name || String(ingredient);
+
+                                              return (
+                                                <li key={idx} className="flex items-start gap-2 text-sm">
+                                                  <span className="text-primary mt-0.5">•</span>
+                                                  <span className="text-muted-foreground">{displayText}</span>
+                                                </li>
+                                              );
+                                            })}
+                                          </ul>
+                                        ) : (
+                                          <p className="text-sm text-muted-foreground italic text-center py-2">
+                                            Keine Zutateninformationen verfügbar
+                                          </p>
+                                        )}
+                                      </div>
+                                    </TabsContent>
+
+                                    <TabsContent value="instructions" className="mt-3 space-y-2">
+                                      <div className="space-y-2">
+                                        {recipe.instructions && recipe.instructions.length > 0 ? (
+                                          recipe.instructions.map((instruction, idx) => (
+                                            <div
+                                              key={idx}
+                                              className="flex gap-2 p-2.5 bg-white/50 rounded-lg border border-primary/10"
+                                            >
+                                              <div className="flex-shrink-0 w-6 h-6 bg-gradient-to-r from-[#ff6b35] to-[#ff8c5a] text-white rounded-full flex items-center justify-center text-xs">
+                                                {idx + 1}
+                                              </div>
+                                              <p className="flex-1 text-sm text-muted-foreground leading-relaxed">
+                                                {instruction}
+                                              </p>
+                                            </div>
+                                          ))
+                                        ) : (
+                                          <p className="text-sm text-muted-foreground italic text-center py-2">
+                                            Keine Zubereitungsanweisungen verfügbar
+                                          </p>
+                                        )}
+                                      </div>
+                                    </TabsContent>
+                                  </Tabs>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </Card>
                       </motion.div>
                     ))}

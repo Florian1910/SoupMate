@@ -6,3 +6,21 @@
 # Datasource local storage ignored files
 /dataSources/
 /dataSources.local.xml
+
+# Node
+node_modules/
+dist/
+build/
+.vite/
+.cache/
+
+# Environment / Secrets
+.env
+.env.*
+!.env.example   # Beispiel darf drinbleiben, echte .env-Dateien nicht
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+*.log
