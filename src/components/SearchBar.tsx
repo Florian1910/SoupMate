@@ -6,6 +6,7 @@ import { API_CONFIG, DEV_MODE } from '../config';
 import { toast } from "sonner@2.0.3";
 import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../utils/supabase/client';
+import { geminiRag } from '../geminiApi';
 
 interface SearchBarProps {
   userName?: string;
@@ -58,218 +59,103 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
     setIsSearching(true);
     onSearchStart?.();
 
-    // 🔥 ERSTE MELDUNG: Abfrage gestartet
-    toast.success('Abfrage gestartet – Datenbank wird angefragt…');
-
-    let accessToken: string | undefined;
-
+    // 🔥 IMMER GEMINI RAG VERWENDEN (ohne semantische Suche mit Keywords)
     try {
-      // Geschützt: User-Token holen
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-
-      if (sessionError) {
-        console.error('Session error:', sessionError);
-        toast.error('Fehler beim Laden der Sitzung');
-        return;
-      }
-
-      accessToken = sessionData?.session?.access_token;
-
-      if (!accessToken) {
-        console.warn('No access token found, user might not be logged in');
-        toast.error('Bitte einloggen, um die Suche zu verwenden.');
-        return;
-      }
-
-      // 🔥 KORREKTER Payload MIT ALLEN FILTERN
-      const payload: any = {
-        k: 5,
-        type: 'text',
-        query: term,
-        filters: {
-          dietType: filters?.dietType || "alle",
-          difficulty: filters?.difficulty || 0,
-          workTime: filters?.workTime || [0, 120],
-          totalTime: filters?.totalTime || [0, 240],
-          allergies: filters?.allergies || [],
-          ingredients: filters?.ingredients || "" // WICHTIG: Zutatenfilter hier!
+      toast.info('🔍 Searching for Recipes...');
+      const result = await geminiRag(term, 5, true);
+      
+      // Normalize Funktion für Rezepte
+      const normalize = (r: any) => {
+        let normalizedIngredients = [];
+        if (r.ingredients && Array.isArray(r.ingredients)) {
+          normalizedIngredients = r.ingredients.map((ing: any) => {
+            if (typeof ing === 'string') return ing;
+            if (ing.name) {
+              let ingredientText = '';
+              if (ing.quantity_text) {
+                ingredientText = ing.quantity_text;
+              } else if (ing.amount && ing.unit) {
+                ingredientText = `${ing.amount} ${ing.unit} ${ing.name}`;
+              } else if (ing.amount) {
+                ingredientText = `${ing.amount} ${ing.name}`;
+              } else {
+                ingredientText = ing.name;
+              }
+              return { name: ing.name, display: ingredientText };
+            }
+            return String(ing);
+          }).filter(Boolean);
         }
+
+        return {
+          id: r.recipe_id ?? r.id ?? String(Math.random()),
+          name: r.name ?? 'Untitled',
+          description: r.description ?? '',
+          fullDescription: r.fullDescription ?? (Array.isArray(r.instructions) ? r.instructions.join('\n') : r.instructions),
+          difficulty: r.difficulty ?? 2,
+          workTime: r.work_time ?? r.workTime ?? undefined,
+          totalTime: r.total_time ?? r.totalTime ?? undefined,
+          servings: r.servings ?? undefined,
+          ingredients: normalizedIngredients,
+          instructions: Array.isArray(r.instructions) ? r.instructions : (r.instructions ? [r.instructions] : []),
+          isVegan: r.vegan ?? r.isVegan ?? false,
+          isVegetarian: r.vegetarian ?? r.isVegetarian ?? false,
+          allergens: r.allergens ?? [],
+          imageUrl: r.image_url,
+          calories: r.calories,
+          protein: r.protein,
+          carbohydrates: r.carbohydrates,
+          fat: r.fat
+        };
       };
 
-      console.log('🔍 Search request with ALL filters:', payload);
-
-      const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.search}`;
-      console.debug('[Search] Request →', {
-        url,
-        payload,
-        hasToken: !!accessToken
-      });
-
-      // Request an Edge Function
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      console.debug('[Search] Response status:', response.status);
-
-      if (!response.ok) {
-        let errorData;
-        try {
-          errorData = await response.json();
-        } catch (parseError) {
-          errorData = { error: `HTTP ${response.status}: ${response.statusText}` };
-        }
-
-        console.error(`Search API error: ${response.status}`, errorData);
-
-        if (response.status === 401) {
-          throw new Error('Nicht autorisiert. Bitte erneut einloggen.');
-        } else if (response.status === 500) {
-          throw new Error('Server-Fehler. Bitte später erneut versuchen.');
-        } else {
-          throw new Error(errorData.error || errorData.message || 'Suche fehlgeschlagen');
-        }
-      }
-
-      // Antwort lesen & normalisieren
-      const raw = await response.json();
-      console.log('🔍 Raw API response:', raw);
-
-      const items = (raw.recipes ?? raw.results ?? []) as any[];
-
-      console.log('🔍 SEARCH DEBUG INFO:');
-      console.log('✅ Response status:', response.status);
-      console.log('✅ Raw API response:', raw);
-      console.log('✅ Items from response:', items);
-
-      // Normalize Funktion
-      const normalize = (r: any) => {
-        console.log('🔍 Normalizing recipe:', {
-          recipe_id: r.recipe_id,
-          hasIngredients: !!r.ingredients,
-          ingredientsType: typeof r.ingredients,
-          ingredientsValue: r.ingredients
-        });
-
-        // Verarbeite Zutaten - unterstütze verschiedene Formate
-        let normalizedIngredients = [];
-
-          if (r.ingredients && Array.isArray(r.ingredients)) {
-            normalizedIngredients = r.ingredients.map((ing: any) => {
-              if (typeof ing === 'string') {
-                return ing;
-              }
-              if (ing.name) {
-                // 🔥 KORRIGIERT: Verhindere doppelte Anzeige des Zutaten-Namens
-                let ingredientText = '';
-
-                if (ing.quantity_text) {
-                  // quantity_text enthält bereits den Namen, also verwenden wir nur das
-                  ingredientText = ing.quantity_text;
-                } else if (ing.amount && ing.unit) {
-                  // amount + unit + name kombinieren
-                  ingredientText = `${ing.amount} ${ing.unit} ${ing.name}`;
-                } else if (ing.amount) {
-                  // amount + name kombinieren
-                  ingredientText = `${ing.amount} ${ing.name}`;
-                } else {
-                  // Nur den Namen verwenden
-                  ingredientText = ing.name;
-                }
-
-                return {
-                  name: ing.name, // Originalname für Filterung
-                  display: ingredientText // Korrigierter Anzeigetext
-                };
-              }
-              return String(ing);
-            }).filter(Boolean);
+      // Übersetzungen aus dem Backend verwenden
+      const translations = result.translations || {};
+      
+      const normalized = (result.recipes || []).map((r: any) => {
+        const normalizedRecipe = normalize(r);
+        const translation = translations[r.recipe_id];
+        
+        // Übersetzte Werte verwenden, falls verfügbar
+        if (translation) {
+          normalizedRecipe.name = translation.title_de || normalizedRecipe.name;
+          normalizedRecipe.description = translation.summary_de || normalizedRecipe.description;
+          if (translation.instructions_full_de) {
+            // Anweisungen als Array behandeln (Split bei Zeilenumbrüchen)
+            normalizedRecipe.instructions = translation.instructions_full_de
+              .split('\n')
+              .filter((line: string) => line.trim().length > 0)
+              .map((line: string) => line.trim());
           }
-
-          return {
-            id: r.recipe_id ?? r.id ?? String(Math.random()),
-            name: r.name ?? 'Untitled',
-            description: r.description ?? '',
-            fullDescription: r.fullDescription ?? (Array.isArray(r.instructions) ? r.instructions.join('\n') : r.instructions),
-            difficulty: r.difficulty ?? 2,
-            workTime: r.work_time ?? r.workTime ?? undefined,
-            totalTime: r.total_time ?? r.totalTime ?? undefined,
-            servings: r.servings ?? undefined,
-            ingredients: normalizedIngredients,
-            instructions: Array.isArray(r.instructions) ? r.instructions : (r.instructions ? [r.instructions] : []),
-            isVegan: r.vegan ?? r.isVegan ?? false,
-            isVegetarian: r.vegetarian ?? r.isVegetarian ?? false,
-            allergens: r.allergens ?? [],
-            imageUrl: r.image_url,
-            calories: r.calories,
-            protein: r.protein,
-            carbohydrates: r.carbohydrates,
-            fat: r.fat
-          };
-        };
-
-      const normalized = items.map(normalize);
-
-      // 🔥 DUPLIKATE ENTFERNEN - Nach Rezeptnamen filtern
+        }
+        
+        return normalizedRecipe;
+      });
+      
       const seenNames = new Set();
       const uniqueNormalized = normalized.filter(recipe => {
-        if (seenNames.has(recipe.name)) {
-          console.log(`🚫 DUPLICATE REMOVED: ${recipe.name}`);
-          return false;
-        }
+        if (seenNames.has(recipe.name)) return false;
         seenNames.add(recipe.name);
         return true;
       });
 
-      console.log('✅ After removing duplicates:', {
-        before: normalized.length,
-        after: uniqueNormalized.length,
-        removed: normalized.length - uniqueNormalized.length
-      });
-
-      // 🔥 ZWEITE MELDUNG: Datenbank-Abfrage OK mit Trefferzahl
-      toast.success(`Datenbank-Abfrage OK: ${uniqueNormalized.length} Treffer`);
-
-      console.log('✅ Search successful, results:', uniqueNormalized);
-      console.log('✅ Passing to onSearchResults:', {
-        query: term,
-        recipes: uniqueNormalized
-      });
-
-      // DIESE ZEILE UNBEDINGT AUFRUFEN:
+      toast.success(`🔍 ${uniqueNormalized.length} Rezepte gefunden!`);
+      
+      // Ergebnisse mit Gemini-Antwort weitergeben
       onSearchResults?.({
         query: term,
-        recipes: uniqueNormalized
+        recipes: uniqueNormalized,
+        geminiAnswer: result.answer_text // LLM-generierte Antwort (wie in chat.http)
       });
-
-    } catch (error) {
-      console.error(`Error during search:`, error);
-
-      let errorMessage = 'Unbekannter Fehler';
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      } else if (typeof error === 'string') {
-        errorMessage = error;
-      }
-
-      console.log('🔍 Search error details:', {
-        url: `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.search}`,
-        hasToken: !!accessToken,
-        tokenLength: accessToken?.length,
-        error: errorMessage
-      });
-
-      toast.error(`Fehler bei der Suche: ${errorMessage}`);
+    } catch (error: any) {
+      console.error('Gemini RAG error:', error);
+      toast.error(`Fehler: ${error?.message ?? 'Unbekannter Fehler'}`);
     } finally {
       setIsSearching(false);
       onSearchEnd?.();
     }
   };
+
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {

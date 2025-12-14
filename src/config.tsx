@@ -12,7 +12,10 @@ export const API_CONFIG = {
     search: "/search",      // Einfach /search
     favorites: "/favorites", // Einfach /favorites
     health: "/health",       // Einfach /health
-    test: "/search/test"     // Einfach /search/test
+    test: "/search/test",    // Einfach /search/test
+    gemini: "/gemini",       // Gemini Chat Endpoints
+    geminiPrepare: "/gemini/prepare", // NLP Vorbereitung
+    geminiRag: "/gemini/rag" // Vollständiger RAG-Flow
   }
 };
 
