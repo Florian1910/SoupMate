@@ -2,47 +2,66 @@ import { Search, Clock, X, History, Loader2 } from "lucide-react";
 import { Input } from "./ui/input";
 import { useState, useEffect, useRef } from "react";
 import { RecipeFilters } from "./Sidebar";
-import { API_CONFIG, DEV_MODE } from '../config';
+import { API_CONFIG } from '../config';
 import { toast } from "sonner@2.0.3";
-import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../utils/supabase/client';
 import { geminiRag } from '../geminiApi';
 
 interface SearchBarProps {
-  userName?: string;
-  onSearchResults?: (results: any) => void;
-  filters?: RecipeFilters;
-  onSearchStart?: () => void;
-  onSearchEnd?: () => void;
+    userName?: string;
+    onSearchResults?: (results: any) => void;
+    filters?: RecipeFilters;
+    onSearchStart?: () => void;
+    onSearchEnd?: () => void;
 }
 
 export function SearchBar({ userName, onSearchResults, filters, onSearchStart, onSearchEnd }: SearchBarProps) {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [searchHistory, setSearchHistory] = useState<string[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+    const [searchTerm, setSearchTerm] = useState("");
+    const [searchHistory, setSearchHistory] = useState<string[]>([]);
+    const [showHistory, setShowHistory] = useState(false);
+    const [isSearching, setIsSearching] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
 
-  // Load search history from localStorage
-  useEffect(() => {
-    const storageKey = userName ? `searchHistory_${userName}` : "searchHistory_guest";
-    const saved = localStorage.getItem(storageKey);
-    if (saved) {
-      try {
-        setSearchHistory(JSON.parse(saved));
-      } catch (e) {
-        console.error("Failed to load search history:", e);
-      }
-    }
-  }, [userName]);
+    // Load search history from localStorage
+    useEffect(() => {
+        const storageKey = userName ? `searchHistory_${userName}` : "searchHistory_guest";
+        const saved = localStorage.getItem(storageKey);
+        if (saved) {
+            try {
+                setSearchHistory(JSON.parse(saved));
+            } catch (e) {
+                console.error("Failed to load search history:", e);
+            }
+        }
+    }, [userName]);
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+                setShowHistory(false);
+            }
+        };
+
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    const handleSearch = async (term: string) => {
+        if (!term.trim()) return;
+
+        const storageKey = userName ? `searchHistory_${userName}` : "searchHistory_guest";
+        const newHistory = [term, ...searchHistory.filter(h => h !== term)].slice(0, 10);
+        setSearchHistory(newHistory);
+        localStorage.setItem(storageKey, JSON.stringify(newHistory));
         setShowHistory(false);
-      }
-    };
+        setIsSearching(true);
+        onSearchStart?.();
+
+        // 🔥 ERSTE MELDUNG: Abfrage gestartet
+        toast.success('Abfrage gestartet – Datenbank wird angefragt…');
+
+        let accessToken: string | undefined;
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -245,16 +264,57 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
                   <span className="text-sm text-foreground">{item}</span>
                 </div>
                 <button
-                  onClick={(e) => removeHistoryItem(item, e)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-primary/40 hover:text-primary"
+                    onClick={() => handleSearch(searchTerm)}
+                    disabled={isSearching || !searchTerm.trim()}
+                    className="px-6 h-12 bg-gradient-to-r from-[#ff6b35] to-[#ff8c5a] hover:from-[#ff8c5a] hover:to-[#ffb085] text-white rounded-xl shadow-xl hover:shadow-2xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 active:scale-95 whitespace-nowrap flex items-center gap-2"
                 >
-                  <X size={16} />
+                    {isSearching ? (
+                        <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                            <span>Suchen...</span>
+                        </>
+                    ) : (
+                        <span>Suchen</span>
+                    )}
                 </button>
-              </div>
-            ))}
-          </div>
+            </div>
+
+            {showHistory && searchHistory.length > 0 && (
+                <div className="absolute top-full mt-2 left-0 bg-white rounded-xl shadow-2xl border-2 border-primary/20 overflow-hidden z-20" style={{ right: 'calc(5.5rem + 0.75rem)' }}>
+                    <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-orange-50 to-orange-100/50 border-b border-primary/20">
+                        <div className="flex items-center gap-2">
+                            <History size={14} className="text-primary" />
+                            <span className="text-xs text-primary/80">Suchverlauf</span>
+                        </div>
+                        <button
+                            onClick={clearHistory}
+                            className="text-xs text-primary/60 hover:text-primary transition-colors"
+                        >
+                            Löschen
+                        </button>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                        {searchHistory.map((item, index) => (
+                            <div
+                                key={index}
+                                onClick={() => selectHistoryItem(item)}
+                                className="flex items-center justify-between px-4 py-2.5 hover:bg-orange-50/50 cursor-pointer transition-colors group"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <Clock size={14} className="text-primary/40" />
+                                    <span className="text-sm text-foreground">{item}</span>
+                                </div>
+                                <button
+                                    onClick={(e) => removeHistoryItem(item, e)}
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-primary/40 hover:text-primary"
+                                >
+                                    <X size={16} />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
-      )}
-    </div>
-  );
+    );
 }
