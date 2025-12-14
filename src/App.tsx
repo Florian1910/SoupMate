@@ -109,7 +109,6 @@ export default function App() {
   const [filters, setFilters] = useState<RecipeFilters>({
     dietType: "alle",
     difficulty: 0,
-    workTime: [0, 120],
     totalTime: [0, 240],
     allergies: [],
     ingredients: "",
