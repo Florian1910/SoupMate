@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """
-ingest_recipes.py
 Importiert Rezepte von der Spoonacular API inklusive Vektor-Embeddings.
 """
 
