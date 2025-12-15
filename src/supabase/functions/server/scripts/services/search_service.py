@@ -9,7 +9,7 @@ from services.database import DatabaseService
 from config import TABLE_RECIPES, TABLE_ING, TABLE_LINK, TABLE_NUTRITION
 
 class EmbeddingService:
-# Add this method to the EmbeddingService class in search_service.py
+    #Wrapper, wandelt in ein gesamten String um [Banana, Strawberry, Almond milk] - [banana strawberry almond milk]
     def search_by_ingredients(self, ingredients: List[str], limit: int = 10) -> List[Dict[str, Any]]:
         """Search recipes by list of ingredients"""
         if not ingredients:
@@ -24,20 +24,6 @@ class EmbeddingService:
         self._all_ingredients_cache = None
         print("✅ EmbeddingService initialisiert", file=sys.stderr)
 
-    def _get_all_ingredients(self) -> List[str]:
-        """Holt alle Zutaten aus der DB (gecached)"""
-        if self._all_ingredients_cache is None:
-            try:
-                with self.db.get_connection() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute(f"SELECT LOWER(name) FROM {TABLE_ING}")
-                        self._all_ingredients_cache = [row[0] for row in cur.fetchall()]
-                        print(f"📊 {len(self._all_ingredients_cache)} Zutaten aus DB geladen", file=sys.stderr)
-            except Exception as e:
-                print(f"❌ Fehler beim Laden der Zutaten: {e}", file=sys.stderr)
-                self._all_ingredients_cache = []
-        return self._all_ingredients_cache
-
     def search_by_text(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         print(f"\n=== DEBUG search_by_text ===", file=sys.stderr)
         print(f"Query: '{query}'", file=sys.stderr)
@@ -51,31 +37,12 @@ class EmbeddingService:
                     recipe_count = cur.fetchone()[0]
                     print(f"🔍 Rezepte in DB: {recipe_count}", file=sys.stderr)
 
-                    # Prüfe ob Embeddings existieren
-                    cur.execute(f"""
-                        SELECT COUNT(*) 
-                        FROM {TABLE_RECIPES} 
-                        WHERE text_embedding IS NOT NULL 
-                        AND ingredients_embedding IS NOT NULL
-                    """)
-                    embedding_count = cur.fetchone()[0]
-                    print(f"🔍 Rezepte mit Embeddings: {embedding_count}", file=sys.stderr)
-
-            if recipe_count == 0:
-                print("❌ Keine Rezepte in der Datenbank!", file=sys.stderr)
-                return []
-
-            if embedding_count == 0:
-                print("❌ Keine Embeddings in der Datenbank!", file=sys.stderr)
-                # Fallback zu einfacher Textsuche
-                return self._fallback_text_search(query, limit)
-
             # 1. Erstelle Vektor für Query
             print(f"🔍 Erstelle Embedding für Query...", file=sys.stderr)
             try:
-                query_embedding = embedding_model.embed(query)
+                query_embedding = embedding_model.embed(query) #erstellt Zahlenvektor
                 print(f"🔍 Embedding Dimension: {len(query_embedding)}", file=sys.stderr)
-                query_vector = embedding_model.vector_to_literal(query_embedding)
+                query_vector = embedding_model.vector_to_literal(query_embedding) #wichtig für Postgres Format
                 print(f"🔍 Vektor erstellt (Länge: {len(query_vector)})", file=sys.stderr)
             except Exception as e:
                 print(f"❌ Fehler beim Erstellen des Embeddings: {e}", file=sys.stderr)
@@ -100,7 +67,7 @@ class EmbeddingService:
             with self.db.get_connection() as conn:
                 with conn.cursor() as cur:
                     print(f"🔍 Führe SQL-Abfrage aus mit limit={expanded_limit}...", file=sys.stderr)
-                    cur.execute(sql, [query_vector, query_vector, expanded_limit])
+                    cur.execute(sql, [query_vector, query_vector, expanded_limit]) #Ausführung des SQL statements
                     rows = cur.fetchall()
 
                     print(f"✅ {len(rows)} Roh-Ergebnisse von DB", file=sys.stderr)
@@ -113,7 +80,7 @@ class EmbeddingService:
                     for idx, row in enumerate(rows):
                         recipe_id = row[0]
 
-                        # Zeige Debug-Info für die ersten 3 Ergebnisse
+                        # Zeige Debug-Info für die ersten 3 Ergebnisse - Testen
                         if idx < 3:
                             print(f"🔍 Ergebnis {idx+1}: '{row[1]}', Similarity: {row[15]:.4f}", file=sys.stderr)
 
@@ -166,7 +133,7 @@ class EmbeddingService:
             # 2. SQL-Abfrage - aber mit ingredients_embedding!
             sql = f"""
                 SELECT
-                    r.recipe_id,
+                    r.recipe_id, 
                     r.name,
                     r.description,
                     r.instructions,
@@ -210,7 +177,7 @@ class EmbeddingService:
                     for idx, row in enumerate(rows):
                         recipe_id = row[0]
 
-                        # DEBUG für erste 3 Ergebnisse
+                        # DEBUG für erste 3 Ergebnisse - Testen
                         if idx < 3:
                             print(f"   📊 Zutaten-Ergebnis {idx+1}: '{row[1]}'", file=sys.stderr)
                             print(f"      Zutaten-Distance: {row[15]:.4f}, Score: {row[16]:.4f}", file=sys.stderr)
@@ -265,6 +232,7 @@ class EmbeddingService:
         """
         Berechnet die Zutaten-Similarity NUR für die gegebenen recipe_ids.
         Liefert ein Mapping: recipe_id -> ingredients_similarity (0.0–1.0)
+        Aspekt der Verfeinerung der gegebenen Werte aus Semantischer Suche von oben
         """
         print(f"\n=== _ingredients_similarity_for_ids ===", file=sys.stderr)
         print(f"🔍 Query: '{query}'", file=sys.stderr)
@@ -295,7 +263,7 @@ class EmbeddingService:
             query_vector = embedding_model.vector_to_literal(query_embedding)
             print(f"✅ Query-Vektor für Zutaten erstellt", file=sys.stderr)
 
-            # 3. SQL-Query mit UUID-Array
+            # 3. SQL-Query mit UUID-Array Vergleich der Ähnlichkeit aller Zutaten zu Query
             sql = f"""
                     WITH recipe_ingredients AS (
                         SELECT 
@@ -344,18 +312,13 @@ class EmbeddingService:
                         # Clamp den Wert zwischen 0 und 1
                         weighted_similarity = max(0.0, min(1.0, weighted_similarity))
 
-                        # **WICHTIG: Transformation anwenden und speichern!**
-                        transformed_similarity = weighted_similarity * 1.5
-                        transformed_similarity = min(1.0, transformed_similarity)  # Nicht über 1.0
-
-                        # ✅ Jetzt den TRANSFORMIERTEN Score speichern!
-                        similarity_map[str(recipe_id)] = transformed_similarity
+                        # ✅ KEIN Boost mehr
+                        similarity_map[str(recipe_id)] = weighted_similarity
 
                         print(f"   📊 Recipe {recipe_id}:", file=sys.stderr)
                         print(f"      - Best Match: {best_match:.4f}", file=sys.stderr)
                         print(f"      - Avg Match: {avg_match:.4f}", file=sys.stderr)
                         print(f"      - Weighted (Raw): {weighted_similarity:.4f}", file=sys.stderr)
-                        print(f"      - Transformed (Final): {transformed_similarity:.4f}", file=sys.stderr)
                         print(f"      - Ingredient Count: {ingredient_count}", file=sys.stderr)
 
             return similarity_map

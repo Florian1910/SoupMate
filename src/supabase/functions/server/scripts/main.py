@@ -48,7 +48,6 @@ def typescript_mode():
 
         print(f"✅ COMBINED search completed: {len(results)} results", file=sys.stderr)
 
-        # WICHTIG: NUR JSON nach stdout!
         output = json.dumps(results, ensure_ascii=False, default=str)
         sys.stdout.write(output)
         sys.stdout.flush()
@@ -62,7 +61,7 @@ def typescript_mode():
         print(json.dumps([]))
 
 
-# --- Such-Funktionen für die CLI ---
+#Debbugging für Terminal ohne Frontend
 def search_by_text_cli(query: str, limit: int, format_output: bool = False):
     embedding_service = EmbeddingService()
     try:
