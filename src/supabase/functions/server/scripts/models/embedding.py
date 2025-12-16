@@ -22,14 +22,14 @@ class EmbeddingModel:
         s = WS_RE.sub(" ", s).strip()
         return s
 
-    # Wandelt den Text in einen Vektor um und prüft, ob die Dimension stimmt (Sicherheitscheck)
+    # Wandelt den Text in einen Vektor um
     def embed(self, text: str) -> List[float]:
         vec = self.model.encode(text or "").tolist()
         if len(vec) != EMB_DIM:
             raise RuntimeError(f"Embedding-Dimension unerwartet: {len(vec)} != {EMB_DIM}")
         return vec
 
-    # Formatiert den Vektor als String für Postgres/pgvector (z.B. '[0.1234,...]')
+    # Formatiert den Vektor als String
     def vector_to_literal(self, vec: List[float]) -> str:
         return "[" + ",".join(f"{x:.8f}" for x in vec) + "]"
 
