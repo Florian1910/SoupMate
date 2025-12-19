@@ -21,7 +21,7 @@ def test_ingredients_similarity():
         "35d5b37d-247e-4dad-8af5-7c5d199930fd"
     ]
 
-    result = service._ingredients_similarity_for_ids(query, recipe_ids)
+    result = service.search_by_text_for_ingredients(query, recipe_ids)
 
     print("Test Ergebnisse für Zutaten-Ähnlichkeit:")
     for recipe_id, score in result.items():
