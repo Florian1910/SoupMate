@@ -621,6 +621,9 @@ app.post('/', async (c) => {
     // ========== PYTHON SEMANTISCHE SUCHE ==========
     console.log(`\n🐍 STARTE PYTHON CLEAN_SEARCH (KOMBINIERTE SUCHE)`);
     console.log(`🔍 Query: "${query}"`);
+    if (ingredientsFilter && ingredientsFilter.trim() !== '') {
+      console.log(`🥕 LLM-extrahierte Zutaten: "${ingredientsFilter}"`);
+    }
     console.log(`📁 Python Skript: clean_search.py`);
     console.log(
       '🎯 Methode: ' +
@@ -637,11 +640,17 @@ app.post('/', async (c) => {
         const pythonScriptPath = './scripts/clean_search.py';
       console.log("Python script path:", pythonScriptPath);
 
+      // Erstelle Argumente: query und optional ingredientsFilter (von LLM extrahiert)
+      const pythonArgs = [pythonScriptPath, query];
+      if (ingredientsFilter && ingredientsFilter.trim() !== '') {
+        pythonArgs.push(ingredientsFilter.trim());
+        console.log(`✅ Übergebe LLM-extrahierte Zutaten an Python: "${ingredientsFilter}"`);
+      } else {
+        console.log(`⚠️  Keine extrahierten Zutaten vorhanden, verwende vollständige Query für Ingredients-Similarity`);
+      }
+
       const command = new Deno.Command("python", {
-        args: [
-          pythonScriptPath,
-          query
-        ],
+        args: pythonArgs,
         stdout: "piped",
         stderr: "piped"
       });
