@@ -3,7 +3,14 @@ import sys
 import json
 import os
 
-print(f"🔍 CLEAN SEARCH: Starte mit Query: {sys.argv[1] if len(sys.argv) > 1 else 'keine'}", file=sys.stderr)
+query = sys.argv[1] if len(sys.argv) > 1 else ""
+ingredients_query = sys.argv[2] if len(sys.argv) > 2 else ""
+
+print(f"🔍 CLEAN SEARCH: Query: '{query}'", file=sys.stderr)
+if ingredients_query:
+    print(f"🥕 Ingredients Query (from LLM): '{ingredients_query}'", file=sys.stderr)
+else:
+    print(f"⚠️  No ingredients query provided, using full query for ingredients similarity", file=sys.stderr)
 
 # Korrekter Pfad
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -15,17 +22,15 @@ try:
 
     service = EmbeddingService()
 
-    if len(sys.argv) > 1:
-        query = sys.argv[1]
-    else:
-        query = ""
-
     limit = 10
 
     print(f"🔍 Führe COMBINED Search aus für: '{query}'", file=sys.stderr)
+    if ingredients_query:
+        print(f"🥕 Verwende extrahierte Zutaten für Ingredients-Similarity: '{ingredients_query}'", file=sys.stderr)
 
     # WICHTIG: Hier muss search_combined() aufgerufen werden!
-    results = service.search_combined(query, limit)
+    # Wenn ingredients_query vorhanden, verwende es für Ingredients-Similarity
+    results = service.search_combined(query, limit, ingredients_query=ingredients_query if ingredients_query else None)
 
     print(f"✅ COMBINED Search abgeschlossen: {len(results)} Ergebnisse", file=sys.stderr)
 
