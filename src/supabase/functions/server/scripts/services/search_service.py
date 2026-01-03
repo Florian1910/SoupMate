@@ -229,7 +229,7 @@ class EmbeddingService:
             return []
 
 
-    def search_combined(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+    def search_combined(self, query: str, limit: int = 10, ingredients_query: str = "") -> List[Dict[str, Any]]:
         """
         Kombiniert Text- und Zutaten-Ähnlichkeit (NEU):
         - Schritt 1: Text-Suche (expanded)
@@ -255,7 +255,9 @@ class EmbeddingService:
 
         # 2) Zutaten-Retrieval (eigenständige Suche, NICHT nur Re-Ranking)
         print(f"🥕 2. Starte Zutaten-Suche (ingredients_embedding) mit expanded_limit={expanded_limit}...", file=sys.stderr)
-        ing_results = self.search_by_text_for_ingredients(query, expanded_limit)
+        ing_q = ingredients_query.strip() if ingredients_query else query
+        ing_results = self.search_by_text_for_ingredients(ing_q, expanded_limit)
+
         print(f"✅ Zutaten-Suche: {len(ing_results)} Ergebnisse", file=sys.stderr)
 
         if not text_results and not ing_results:

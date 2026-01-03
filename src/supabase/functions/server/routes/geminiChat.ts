@@ -13,7 +13,9 @@ geminiRoutes.post('/', async (c) => {
         const apiKey = Deno.env.get('GEMINI_API_KEY');
         if (!apiKey) return c.json({ ok: false, error: 'GEMINI_API_KEY missing' }, 500);
 
-        const { prompt } = await c.req.json().catch(() => ({}));
+        const { prompt, filters = {} } = await c.req.json().catch(() => ({}));
+        const userIngredients = typeof filters?.ingredients === 'string' ? filters.ingredients : '';
+
         if (!prompt || typeof prompt !== 'string')
             return c.json({ ok: false, error: "Body must include 'prompt' (string)" }, 400);
 
@@ -65,152 +67,157 @@ function normalizeIngredient(word: string): string {
  * sondern NUR "tomato,lentils" etc.
  */
 geminiRoutes.post('/prepare', async (c) => {
-    try {
-        const apiKey = Deno.env.get('GEMINI_API_KEY');
-        if (!apiKey) return c.json({ ok: false, error: 'GEMINI_API_KEY missing' }, 500);
+  try {
+    const apiKey = Deno.env.get('GEMINI_API_KEY');
+    if (!apiKey) return c.json({ ok: false, error: 'GEMINI_API_KEY missing' }, 500);
 
-        const { prompt } = await c.req.json().catch(() => ({}));
-        if (!prompt || typeof prompt !== 'string')
-            return c.json({ ok: false, error: "Body must include 'prompt' (string)" }, 400);
+    // ✅ prompt + optional filters vom Frontend lesen
+    const body = await c.req.json().catch(() => ({} as any));
+    const { prompt, filters = {} } = body ?? {};
 
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-
-        // ✅ Schema: wir brauchen english_prompt + ingredients-only
-        const schema = {
-            type: 'object',
-            properties: {
-                english_prompt: { type: 'string' },
-                ingredients: { type: 'array', items: { type: 'string' } }, // <-- NUR Zutaten
-                exclude_ingredients: { type: 'array', items: { type: 'string' } }, // optional
-                diet: { type: 'string' },      // optional (vegan/vegetarian/alle)
-                time_max: { type: 'number' }   // optional
-            },
-            required: ['english_prompt', 'ingredients']
-        } as const;
-
-        // ✅ System Prompt: erzwingt "ingredients only"
-        const sysPrompt =
-            'Input is German. Return STRICT JSON only.\n' +
-            '1) Translate the full user prompt into English as english_prompt.\n' +
-            '2) Extract ONLY ingredient names into ingredients (English, lowercase).\n' +
-            '   - ingredients must contain ONLY foods/ingredients (e.g., tomato, lentils, garlic).\n' +
-            '   - DO NOT include generic words (soup, recipe), diets (vegan), time words (quick), cuisines, or adjectives.\n' +
-            '3) If the user excludes ingredients (e.g., "ohne X"), put them into exclude_ingredients (English, lowercase).\n' +
-            '4) If diet is mentioned, set diet to "vegan" or "vegetarian", else "alle".\n' +
-            '5) If user says quick/schnell and no explicit time is given, set time_max=30, else omit or set to 240.\n';
-
-        const result = await model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            systemInstruction: { role: 'system', parts: [{ text: sysPrompt }] },
-            generationConfig: {
-                temperature: 0.2,
-                responseMimeType: 'application/json',
-                responseSchema: schema
-            }
-        });
-
-        const parsed = JSON.parse(result.response.text());
-
-        const inferredDifficulty = inferDifficultyFromPrompt(prompt);
-
-        // -----------------------------
-        // ✅ Normalisieren + "Ban-Liste"
-        // -----------------------------
-        const normArr = (arr: any) =>
-            Array.isArray(arr)
-                ? arr.map((x) => String(x).toLowerCase().trim()).filter(Boolean)
-                : [];
-
-        const rawIngredients = normArr(parsed.ingredients);
-        const rawExclude = normArr(parsed.exclude_ingredients);
-
-        // Hard-Ban für typische Nicht-Zutaten
-        const BAN = new Set([
-            'soup', 'soups', 'recipe', 'recipes', 'dish', 'dishes', 'meal', 'meals', 'food', 'foods',
-            'vegan', 'vegetarian', 'quick', 'easy', 'healthy', 'low', 'calorie', 'calories',
-            'gluten-free', 'dairy-free', 'breakfast', 'lunch', 'dinner'
-        ]);
-
-        const cleanIngredients = rawIngredients
-            .map(normalizeIngredient)
-            .filter((x) => !BAN.has(x));
-
-
-        // Allergies Mapping (wie ihr’s vorher gemacht habt)
-        // Du kannst hier genauso wie im Search.ts euer Mapping pflegen.
-        const allergyMap: Record<string, string> = {
-            celery: 'Sellerie',
-            gluten: 'Gluten',
-            lactose: 'Laktose',
-            milk: 'Laktose',
-            nuts: 'Nüsse',
-            nut: 'Nüsse',
-            peanut: 'Nüsse',
-            soy: 'Soja',
-            egg: 'Eier',
-            eggs: 'Eier',
-            fish: 'Fisch',
-            shellfish: 'Schalentiere',
-            shrimp: 'Schalentiere',
-            prawn: 'Schalentiere',
-            crab: 'Schalentiere',
-            lobster: 'Schalentiere'
-        };
-
-        const allergies: string[] = [];
-        for (const ex of rawExclude) {
-            const mapped = allergyMap[ex];
-            if (mapped) allergies.push(mapped);
-        }
-
-        // Diet / Time
-        const diet = typeof parsed.diet === 'string' ? String(parsed.diet).toLowerCase().trim() : 'alle';
-        const timeMax = Number.isFinite(parsed.time_max) ? Number(parsed.time_max) : 240;
-
-        // =========================================================
-        // 🔥 HIER ist die entscheidende Stelle:
-        // filters.ingredients = NUR extrahierte Zutaten (EN)
-        // Das wird in search.ts als zweites python-Argument übergeben
-        // -> clean_search.py -> search_combined(... ingredients_query=...)
-        // =========================================================
-        const ingredientsStr = cleanIngredients.join(',');
-
-        const searchPayload = {
-            query: String(parsed.english_prompt || '').trim(), // Voller Prompt EN (Text-Suche)
-            type: 'text',
-            k: 5,
-            filters: {
-                dietType: diet || 'alle',
-                difficulty: inferredDifficulty,
-                workTime: [0, 120],
-                totalTime: [0, timeMax],
-                allergies,
-                ingredients: ingredientsStr // ✅ NUR Zutaten, NICHT der ganze Prompt!
-            }
-        };
-
-        return c.json({
-            ok: true,
-            nlp: {
-                original_de: prompt,
-                english: searchPayload.query,
-                ingredients_extracted: cleanIngredients,
-                exclude_extracted: rawExclude,
-                inferredDifficulty,
-                diet,
-                time_max: timeMax
-            },
-            searchRequest: {
-                endpoint: '/search',
-                payload: searchPayload
-            }
-        });
-    } catch (err: any) {
-        console.error('Gemini prepare error:', err);
-        return c.json({ ok: false, error: err.message ?? 'Internal error' }, 500);
+    if (!prompt || typeof prompt !== 'string') {
+      return c.json({ ok: false, error: "Body must include 'prompt' (string)" }, 400);
     }
+
+    // ✅ NUR User-Zutatenfeld (wenn User explizit etwas im Zutatenfeld eingibt!)
+    const userIngredients =
+      typeof (filters as any)?.ingredients === 'string' ? String((filters as any).ingredients) : '';
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+    // ✅ Schema: english_prompt + ingredients-only
+    const schema = {
+      type: 'object',
+      properties: {
+        english_prompt: { type: 'string' },
+        ingredients: { type: 'array', items: { type: 'string' } }, // NUR Zutaten
+        exclude_ingredients: { type: 'array', items: { type: 'string' } }, // optional
+        diet: { type: 'string' }, // optional (vegan/vegetarian/alle)
+        time_max: { type: 'number' } // optional
+      },
+      required: ['english_prompt', 'ingredients']
+    } as const;
+
+    // ✅ System Prompt: erzwingt "ingredients only"
+    const sysPrompt =
+      'Input is German. Return STRICT JSON only.\n' +
+      '1) Translate the full user prompt into English as english_prompt.\n' +
+      '2) Extract ONLY ingredient names into ingredients (English, lowercase).\n' +
+      '   - ingredients must contain ONLY foods/ingredients (e.g., tomato, lentils, garlic).\n' +
+      '   - DO NOT include generic words (soup, recipe), diets (vegan), time words (quick), cuisines, or adjectives.\n' +
+      '3) If the user excludes ingredients (e.g., "ohne X"), put them into exclude_ingredients (English, lowercase).\n' +
+      '4) If diet is mentioned, set diet to "vegan" or "vegetarian", else "alle".\n' +
+      '5) If user says quick/schnell and no explicit time is given, set time_max=30, else omit or set to 240.\n';
+
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      systemInstruction: { role: 'system', parts: [{ text: sysPrompt }] },
+      generationConfig: {
+        temperature: 0.2,
+        responseMimeType: 'application/json',
+        responseSchema: schema
+      }
+    });
+
+    const parsed = JSON.parse(result.response.text());
+
+    const inferredDifficulty = inferDifficultyFromPrompt(prompt);
+
+    // -----------------------------
+    // ✅ Normalisieren + "Ban-Liste"
+    // -----------------------------
+    const normArr = (arr: any) =>
+      Array.isArray(arr) ? arr.map((x) => String(x).toLowerCase().trim()).filter(Boolean) : [];
+
+    const rawIngredients = normArr(parsed.ingredients);
+    const rawExclude = normArr(parsed.exclude_ingredients);
+
+    // Hard-Ban für typische Nicht-Zutaten
+    const BAN = new Set([
+      'soup', 'soups', 'recipe', 'recipes', 'dish', 'dishes', 'meal', 'meals', 'food', 'foods',
+      'vegan', 'vegetarian', 'quick', 'easy', 'healthy', 'low', 'calorie', 'calories',
+      'gluten-free', 'dairy-free', 'breakfast', 'lunch', 'dinner'
+    ]);
+
+    const cleanIngredients = rawIngredients
+      .map(normalizeIngredient)
+      .filter((x) => !BAN.has(x));
+
+    // Allergies Mapping (wie vorher)
+    const allergyMap: Record<string, string> = {
+      celery: 'Sellerie',
+      gluten: 'Gluten',
+      lactose: 'Laktose',
+      milk: 'Laktose',
+      nuts: 'Nüsse',
+      nut: 'Nüsse',
+      peanut: 'Nüsse',
+      soy: 'Soja',
+      egg: 'Eier',
+      eggs: 'Eier',
+      fish: 'Fisch',
+      shellfish: 'Schalentiere',
+      shrimp: 'Schalentiere',
+      prawn: 'Schalentiere',
+      crab: 'Schalentiere',
+      lobster: 'Schalentiere'
+    };
+
+    const allergies: string[] = [];
+    for (const ex of rawExclude) {
+      const mapped = allergyMap[ex];
+      if (mapped) allergies.push(mapped);
+    }
+
+    // Diet / Time
+    const diet = typeof parsed.diet === 'string' ? String(parsed.diet).toLowerCase().trim() : 'alle';
+    const timeMax = Number.isFinite(parsed.time_max) ? Number(parsed.time_max) : 240;
+
+    // ✅ LLM-Zutaten als String (nur Similarity-Hint, NICHT hart filtern)
+    const ingredientsStr = cleanIngredients.join(',');
+
+    const searchPayload = {
+      query: String(parsed.english_prompt || '').trim(),
+      type: 'text',
+      k: 5,
+      filters: {
+        dietType: diet || 'alle',
+        difficulty: inferredDifficulty,
+        workTime: [0, 120],
+        totalTime: [0, timeMax],
+        allergies,
+
+        // ✅ Pflichtfilter NUR wenn User im Sidebar-Feld was eingibt
+        ingredients: userIngredients,
+
+        // ✅ LLM-Zutaten nur als Similarity-Hint (kein Pflichtfilter!)
+        ingredients_llm: ingredientsStr
+      }
+    };
+
+    return c.json({
+      ok: true,
+      nlp: {
+        original_de: prompt,
+        english: searchPayload.query,
+        ingredients_extracted: cleanIngredients,
+        exclude_extracted: rawExclude,
+        inferredDifficulty,
+        diet,
+        time_max: timeMax
+      },
+      searchRequest: {
+        endpoint: '/search',
+        payload: searchPayload
+      }
+    });
+  } catch (err: any) {
+    console.error('Gemini prepare error:', err);
+    return c.json({ ok: false, error: err?.message ?? 'Internal error' }, 500);
+  }
 });
+
 
 // =====================================================================
 // Hilfsfunktionen
@@ -489,150 +496,76 @@ ${instr}${img}`;
  * Vollständiger RAG-Flow (Prepare → Search → Übersetzung → Antwort)
  */
 geminiRoutes.post('/rag', async (c) => {
-    try {
-        const { prompt, k = 5, translate = true } = await c.req.json().catch(() => ({}));
-        if (!prompt || typeof prompt !== 'string')
-            return c.json({ ok: false, error: "Body must include 'prompt' (string)" }, 400);
+  try {
+    const { prompt, k = 5, translate = true, filters = {} } = await c.req.json().catch(() => ({}));
+    if (!prompt || typeof prompt !== 'string')
+      return c.json({ ok: false, error: "Body must include 'prompt' (string)" }, 400);
 
-        const baseUrl = `http://localhost:${config.app.port}`;
+    const baseUrl = `http://localhost:${config.app.port}`;
 
-        // 1) NLP vorbereiten
-        const prepRes = await fetch(`${baseUrl}/gemini/prepare`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt })
+    // 1) NLP vorbereiten
+    const prepRes = await fetch(`${baseUrl}/gemini/prepare`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, filters }) // ✅ filters weiterreichen
+    });
+
+    if (!prepRes.ok) return c.json({ ok: false, step: 'prepare', error: await prepRes.text() }, 502);
+
+    const prepJson: any = await prepRes.json();
+    const searchPayload = prepJson?.searchRequest?.payload;
+    if (!searchPayload) return c.json({ ok: false, step: 'prepare', error: 'No search payload returned' }, 502);
+
+    // 2) Suche ausführen
+    const searchRes = await fetch(`${baseUrl}/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(searchPayload)
+    });
+    if (!searchRes.ok) return c.json({ ok: false, step: 'search', error: await searchRes.text() }, 502);
+
+    const searchJson: any = await searchRes.json();
+    let recipes = searchJson?.recipes ?? [];
+
+    // Optionaler Fallback (nur wenn KEIN Pflicht-Zutatenfilter aktiv ist)
+    const hasRequiredIngredients =
+      !!(searchPayload.filters?.ingredients && String(searchPayload.filters.ingredients).trim() !== '');
+
+    if (recipes.length < Math.min(k, 3)) {
+      if (hasRequiredIngredients) {
+        console.log(`🛑 Kein Fallback, Pflicht-Zutaten aktiv: "${searchPayload.filters.ingredients}"`);
+      } else {
+        console.log('⚠️ Wenig Ergebnisse, starte Fallback ohne Zutatenfilter...');
+        const fallbackPayload = { ...searchPayload, filters: { ...searchPayload.filters, ingredients: '' } };
+
+        const fallbackRes = await fetch(`${baseUrl}/search`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fallbackPayload)
         });
-        if (!prepRes.ok) return c.json({ ok: false, step: 'prepare', error: await prepRes.text() }, 502);
 
-        const prepJson: any = await prepRes.json();
-        const searchPayload = prepJson?.searchRequest?.payload;
-        if (!prepJson?.ok || !searchPayload)
-            return c.json({ ok: false, step: 'prepare', error: 'Malformed prepare response' }, 502);
-
-        searchPayload.k = k;
-
-        // 2) Suche ausführen (geht auf search.ts -> clean_search.py -> search_combined)
-        const searchRes = await fetch(`${baseUrl}/search`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(searchPayload)
-        });
-        if (!searchRes.ok) return c.json({ ok: false, step: 'search', error: await searchRes.text() }, 502);
-
-        const searchJson: any = await searchRes.json();
-        let recipes = searchJson?.recipes ?? [];
-
-        // Optionaler Fallback (nur wenn KEIN Pflicht-Zutatenfilter aktiv ist)
-        const hasRequiredIngredients =
-            !!(searchPayload.filters?.ingredients && String(searchPayload.filters.ingredients).trim() !== '');
-
-        if (recipes.length < Math.min(k, 3)) {
-            if (hasRequiredIngredients) {
-                console.log(`🛑 Kein Fallback, Pflicht-Zutaten aktiv: "${searchPayload.filters.ingredients}"`);
-            } else {
-                console.log('⚠️ Wenig Ergebnisse, starte Fallback ohne Zutatenfilter...');
-                const fallbackPayload = { ...searchPayload, filters: { ...searchPayload.filters, ingredients: '' } };
-
-                const fallbackRes = await fetch(`${baseUrl}/search`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(fallbackPayload)
-                });
-
-                const fallbackJson = await fallbackRes.json();
-                recipes = fallbackJson?.recipes ?? recipes;
-            }
+        if (fallbackRes.ok) {
+          const fallbackJson: any = await fallbackRes.json();
+          const fallbackRecipes = fallbackJson?.recipes ?? [];
+          if (fallbackRecipes.length > recipes.length) recipes = fallbackRecipes;
         }
-
-        // 3) Übersetzen (Titel, Beschreibung, komplette Anweisungen) + Zutaten
-        let translationsMap: Record<string, { title_de: string; summary_de: string; instructions_full_de: string }> = {};
-        let ingredientsTranslations: Record<string, Array<{ name_de: string; quantity_text_de: string }>> = {};
-
-        if (translate && recipes.length > 0) {
-            const apiKey = Deno.env.get("GEMINI_API_KEY") || "";
-            if (apiKey) {
-                // Minimal fürs Rezept-Text-Batch
-                const minimalText = recipes
-                    .filter((r: any) => r.recipe_id)
-                    .slice(0, k)
-                    .map((r: any) => ({
-                        recipe_id: r.recipe_id,
-                        name: r.name || "",
-                        description: r.description || "",
-                        instructions: r.instructions || "",
-                    }));
-
-                translationsMap = await translateRecipesToGermanBatch(apiKey, minimalText);
-
-                // Fallback pro Rezept (wie gehabt)
-                for (const it of minimalText) {
-                    if (!translationsMap[it.recipe_id]) {
-                        const one = await translateOneRecipeToGerman(apiKey, it);
-                        if (one) translationsMap[it.recipe_id] = one;
-                    }
-                }
-
-                // Zutaten-Übersetzung (Batch)
-                const minimalIngredients = recipes
-                    .filter((r: any) => r.recipe_id && Array.isArray(r.ingredients))
-                    .slice(0, k)
-                    .map((r: any) => ({
-                        recipe_id: r.recipe_id,
-                        ingredients: (r.ingredients ?? []).map((ing: any) => ({
-                            name: ing?.name ?? "",
-                            quantity_text: ing?.quantity_text ?? "",
-                        })),
-                    }));
-
-                ingredientsTranslations = await translateIngredientsToGermanBatch(apiKey, minimalIngredients);
-
-                // ✅ Override: recipes[].ingredients auf Deutsch setzen (Front-end bekommt direkt DE)
-                recipes = recipes.map((r: any) => {
-                    const tr = ingredientsTranslations[r.recipe_id];
-                    if (!tr || !Array.isArray(r.ingredients)) return r;
-
-                    // gleicher Index → gleiche Zutat (DB liefert stabil in eurer Reihenfolge)
-                    const newIngredients = r.ingredients.map((ing: any, idx: number) => {
-                        const t = tr[idx];
-                        if (!t) return ing;
-                        return {
-                            ...ing,
-                            name: t.name_de || ing.name,
-                            quantity_text: t.quantity_text_de || ing.quantity_text,
-                        };
-                    });
-
-                    return { ...r, ingredients: newIngredients };
-                });
-            }
-        }
-
-
-        // 4) Rendern
-        const answer = renderGermanAnswerFull(
-            prepJson?.nlp?.original_de ?? prompt,
-            recipes,
-            translationsMap
-        );
-
-        return c.json({
-            ok: true,
-            steps: {
-                nlp: prepJson.nlp,
-                searchPayload,
-                searchStats: {
-                    count: searchJson?.count ?? recipes.length,
-                    responseTime: searchJson?.responseTime,
-                    filterSummary: searchJson?.filterSummary,
-                    searchMethod: searchJson?.searchMethod
-                }
-            },
-            recipes,
-            translations: translationsMap,
-            answer_text: answer
-        });
-    } catch (err: any) {
-        console.error('/gemini/rag error:', err);
-        return c.json({ ok: false, error: err.message ?? 'Internal error' }, 500);
+      }
     }
+
+    // 3) Antwort zurück
+    return c.json(
+      {
+        ok: true,
+        prompt,
+        translate,
+        filters, // ✅ zur Kontrolle zurückgeben
+        searchPayload,
+        recipes: recipes.slice(0, k)
+      },
+      200
+    );
+  } catch (err: any) {
+    console.error('Gemini RAG error:', err);
+    return c.json({ ok: false, error: err?.message ?? 'Internal error' }, 500);
+  }
 });

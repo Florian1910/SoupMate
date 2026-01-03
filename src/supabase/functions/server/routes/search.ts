@@ -154,6 +154,27 @@ ${recipe.instructions?.substring(0, 200) || 'Keine Anleitung verfügbar'}...
 `;
 }
 
+function buildTermVariants(term: string): string[] {
+  const t = term.toLowerCase().trim();
+  const variants = new Set<string>([t]);
+
+  // simple plurals
+  variants.add(t + 's');
+  variants.add(t + 'es');
+
+  // y -> ies (strawberry -> strawberries)
+  if (t.endsWith('y') && t.length > 2) {
+    variants.add(t.slice(0, -1) + 'ies');
+  }
+
+  // ies -> y (reverse)
+  if (t.endsWith('ies') && t.length > 3) {
+    variants.add(t.slice(0, -3) + 'y');
+  }
+
+  return [...variants];
+}
+
 // ========== ZUTATEN-FILTER FUNKTION ==========
 function filterByIngredients(recipes: any[], ingredientsFilter: string): any[] {
   if (!ingredientsFilter || ingredientsFilter.trim() === '') {
@@ -184,18 +205,25 @@ function filterByIngredients(recipes: any[], ingredientsFilter: string): any[] {
     const allIngredients = ingredientsArray
       .map((ing: any) => {
         if (typeof ing === 'string') {
-          return ing.toLowerCase();
+          return ing;
         } else if (ing && typeof ing === 'object' && ing.name) {
-          return ing.name.toLowerCase();
+          return ing.name;
         }
         return '';
       })
-      .join(' ')
-      .toLowerCase();
+      .join(' ');
 
-    const allTermsFound = searchTerms.every(term =>
-      allIngredients.includes(term.toLowerCase())
-    );
+    const ingredientsLower = allIngredients.toLowerCase();
+
+    const allTermsFound = searchTerms.every(term => {
+      const variants = buildTermVariants(term);
+      const found = variants.some(v => ingredientsLower.includes(v));
+
+      if (!found) {
+        console.log(`[INGREDIENTS] Missing term "${term}" (variants: ${variants.join('|')})`);
+      }
+      return found;
+    });
 
     if (!allTermsFound) {
       const missingTerms = searchTerms.filter(term =>
@@ -605,7 +633,12 @@ app.post('/', async (c) => {
       workTime = [0, 120],
       totalTime = [0, 240],
       allergies = [],
-      ingredients: ingredientsFilter = ''
+
+      // ✅ NUR User-Eingabe aus dem Zutatenfeld (soll hart filtern)
+      ingredients: ingredientsUser = '',
+
+      // ✅ LLM-extrahierte Zutaten (sollen NICHT hart filtern, nur Ranking unterstützen)
+      ingredients_llm: ingredientsLLM = ''
     } = filters;
 
     console.log('[SEARCH] Filter für diese Suche:', {
@@ -615,15 +648,22 @@ app.post('/', async (c) => {
       workTime,
       totalTime,
       allergies: allergies.length,
-      ingredientsFilter
+      ingredientsUser,
+      ingredientsLLM
+
     });
 
     // ========== PYTHON SEMANTISCHE SUCHE ==========
     console.log(`\n🐍 STARTE PYTHON CLEAN_SEARCH (KOMBINIERTE SUCHE)`);
     console.log(`🔍 Query: "${query}"`);
-    if (ingredientsFilter && ingredientsFilter.trim() !== '') {
-      console.log(`🥕 LLM-extrahierte Zutaten: "${ingredientsFilter}"`);
+
+    // ✅ Nur LLM-Zutaten loggen (Similarity-Hint)
+    if (ingredientsLLM && String(ingredientsLLM).trim() !== '') {
+      console.log(`🥕 LLM-Zutaten (Similarity-Hint): "${ingredientsLLM}"`);
+    } else {
+      console.log(`🥕 LLM-Zutaten (Similarity-Hint): <leer>`);
     }
+
     console.log(`📁 Python Skript: clean_search.py`);
     console.log(
       '🎯 Methode: ' +
@@ -642,12 +682,14 @@ app.post('/', async (c) => {
 
       // Erstelle Argumente: query und optional ingredientsFilter (von LLM extrahiert)
       const pythonArgs = [pythonScriptPath, query];
-      if (ingredientsFilter && ingredientsFilter.trim() !== '') {
-        pythonArgs.push(ingredientsFilter.trim());
-        console.log(`✅ Übergebe LLM-extrahierte Zutaten an Python: "${ingredientsFilter}"`);
-      } else {
-        console.log(`⚠️  Keine extrahierten Zutaten vorhanden, verwende vollständige Query für Ingredients-Similarity`);
-      }
+        // ✅ Für semantische Ingredients-Similarity nur LLM-Zutaten nutzen (falls vorhanden)
+        if (ingredientsLLM && String(ingredientsLLM).trim() !== '') {
+          pythonArgs.push(String(ingredientsLLM).trim());
+          console.log(`✅ Übergebe LLM-Zutaten an Python (nur Similarity): "${ingredientsLLM}"`);
+        } else {
+          console.log(`⚠️  Keine LLM-Zutaten vorhanden, Python nutzt (intern) die Query für Ingredients-Similarity`);
+        }
+
 
       const command = new Deno.Command("python", {
         args: pythonArgs,
@@ -803,11 +845,14 @@ app.post('/', async (c) => {
         };
 
         // 1. Zutatenfilter
-        if (ingredientsFilter && ingredientsFilter.trim() !== '' && filteredRecipes.length > 0) {
+        // ✅ HARTE Zutatenfilterung nur, wenn User das Zutatenfeld befüllt hat
+        if (ingredientsUser && String(ingredientsUser).trim() !== '' && filteredRecipes.length > 0) {
           const beforeCount = filteredRecipes.length;
-          filteredRecipes = filterByIngredients(filteredRecipes, ingredientsFilter);
+          filteredRecipes = filterByIngredients(filteredRecipes, String(ingredientsUser));
           filterStats.afterIngredients = filteredRecipes.length;
-          console.log('Zutatenfilter: ' + beforeCount + ' -> ' + filteredRecipes.length + ' Rezepte');
+          console.log('Zutatenfilter (USER): ' + beforeCount + ' -> ' + filteredRecipes.length + ' Rezepte');
+        } else {
+          console.log('Zutatenfilter (USER): deaktiviert (Zutatenfeld leer)');
         }
 
         // 2. Allergienfilter
@@ -932,17 +977,20 @@ app.post('/', async (c) => {
         console.log('Python Roh-Ergebnisse (clean_search.py): ' + pythonResults.length);
         console.log('Nach Duplikat-Entfernung: ' + uniqueResults.length);
 
-        if (ingredientsFilter && ingredientsFilter.trim() !== '') {
+        // ✅ Nur User-Zutaten dürfen in der Filter-Zusammenfassung als "Zutatenfilter" erscheinen
+        if (ingredientsUser && String(ingredientsUser).trim() !== '') {
           const excludedByIngredients = filterStats.initialCount - filterStats.afterIngredients;
           console.log(
-            'Zutatenfilter ("' +
-              ingredientsFilter +
+            'Zutatenfilter (USER, "' +
+              String(ingredientsUser).trim() +
               '"): ' +
               filterStats.afterIngredients +
               ' Rezepte (+' +
               excludedByIngredients +
               ' ausgeschlossen)'
           );
+        } else {
+          console.log('Zutatenfilter (USER): deaktiviert (Zutatenfeld leer)');
         }
 
         if (allergies && allergies.length > 0) {

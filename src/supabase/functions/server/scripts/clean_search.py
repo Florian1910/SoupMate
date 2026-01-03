@@ -30,7 +30,7 @@ try:
 
     # WICHTIG: Hier muss search_combined() aufgerufen werden!
     # Wenn ingredients_query vorhanden, verwende es für Ingredients-Similarity
-    results = service.search_combined(query, limit, ingredients_query=ingredients_query if ingredients_query else None)
+    results = service.search_combined(query, limit, ingredients_query)
 
     print(f"✅ COMBINED Search abgeschlossen: {len(results)} Ergebnisse", file=sys.stderr)
 
