@@ -231,94 +231,148 @@ class EmbeddingService:
 
     def search_combined(self, query: str, limit: int = 10, ingredients_query: str = "") -> List[Dict[str, Any]]:
         """
-        Kombiniert Text- und Zutaten-Ähnlichkeit (NEU):
-        - Schritt 1: Text-Suche (expanded)
-        - Schritt 2: Zutaten-Suche über ingredients_embedding (expanded)
-        - Schritt 3: Merge beider Result-Listen per recipe_id
-        - Schritt 4: Score = 0.7 * Text + 0.3 * Ingredients
+        ECHTES 2-STUFIGES RE-RANKING:
+
+        1) Kandidaten holen über Text-Embedding (expanded)
+        2) NUR diese Kandidaten mit ingredients_embedding bewerten (Similarity)
+        3) Final Score = 0.7 * Text + 0.3 * Zutaten (wenn Zutaten vorhanden)
+           - Wenn Zutaten-Embedding fehlt: keine "0-Strafe", sondern nur Textscore
+
+        Ergebnis: Keine "ingredients_score = 0" nur weil Rezept nicht in einer zweiten Top-N Liste war.
         """
-        print(f"\n=== START COMBINED SEARCH (MIT INGREDIENTS-EMBEDDING) ===", file=sys.stderr)
+
+        import sys
+        from typing import Any, Dict, List, Tuple
+
+        print(f"\n=== START COMBINED SEARCH (RE-RANK TEXT → INGREDIENTS) ===", file=sys.stderr)
         print(f"🔍 Query: '{query}'", file=sys.stderr)
 
         TEXT_WEIGHT = 0.7
         ING_WEIGHT = 0.3
-
-        print(f"⚖️  Gewichtung: {TEXT_WEIGHT * 100:.0f}% Text, {ING_WEIGHT * 100:.0f}% Zutaten", file=sys.stderr)
-
-        # Expanded retrieval, damit Merge sinnvoll ist
         expanded_limit = max(30, limit * 3)
 
-        # 1) Text-Retrieval
-        print(f"📝 1. Starte Text-Suche mit expanded_limit={expanded_limit}...", file=sys.stderr)
+        print(f"⚖️  Gewichtung: {TEXT_WEIGHT * 100:.0f}% Text, {ING_WEIGHT * 100:.0f}% Zutaten", file=sys.stderr)
+        print(f"🧲 Expanded candidates: {expanded_limit}", file=sys.stderr)
+
+        # ---------------------------------------------------------------------
+        # 1) Text-Kandidaten holen
+        # ---------------------------------------------------------------------
+        print(f"📝 1. Text-Suche (Candidates) ...", file=sys.stderr)
         text_results = self.search_by_text(query, expanded_limit)
         print(f"✅ Text-Suche: {len(text_results)} Ergebnisse", file=sys.stderr)
 
-        # 2) Zutaten-Retrieval (eigenständige Suche, NICHT nur Re-Ranking)
-        print(f"🥕 2. Starte Zutaten-Suche (ingredients_embedding) mit expanded_limit={expanded_limit}...", file=sys.stderr)
-        ing_q = ingredients_query.strip() if ingredients_query else query
-        ing_results = self.search_by_text_for_ingredients(ing_q, expanded_limit)
-
-        print(f"✅ Zutaten-Suche: {len(ing_results)} Ergebnisse", file=sys.stderr)
-
-        if not text_results and not ing_results:
-            print("⚠️  Keine Ergebnisse (Text & Zutaten leer).", file=sys.stderr)
+        if not text_results:
+            print("⚠️  Keine Text-Ergebnisse -> return [].", file=sys.stderr)
             return []
 
-        # 3) Indexe bauen (recipe_id -> score)
-        # Achtung: in search_by_text() ist der Score bereits "score"
+        # IDs der Kandidaten
+        candidate_ids = [r["recipe_id"] for r in text_results if r.get("recipe_id")]
+
+        # text score map
         text_score_map: Dict[str, float] = {
             r["recipe_id"]: float(r.get("score", 0.0)) for r in text_results
         }
 
-        # In search_by_text_for_ingredients() ist "score" == ingredients_similarity
-        ing_score_map: Dict[str, float] = {
-            r["recipe_id"]: float(r.get("score", 0.0)) for r in ing_results
-        }
+        # base data aus text_results (enthält schon ingredients via _get_recipe_ingredients)
+        base_by_id: Dict[str, Dict[str, Any]] = {r["recipe_id"]: r for r in text_results}
 
-        # 4) Merge: wir nehmen die Union aus beiden Sets,
-        # damit auch "zutatige" Treffer reinkommen, die textlich wenig matchen.
-        all_ids = list(set(text_score_map.keys()) | set(ing_score_map.keys()))
+        # ---------------------------------------------------------------------
+        # 2) Zutaten-Score nur für diese Kandidaten berechnen
+        # ---------------------------------------------------------------------
+        ing_q = (ingredients_query.strip() if ingredients_query else "").strip()
+        if not ing_q:
+            # fallback: wenn kein ingredients_query vorhanden, nutze query
+            ing_q = query
 
-        # Für stabile Ergebnisse: optional die Kandidatenzahl begrenzen,
-        # sonst kann das Set sehr groß werden.
-        # Wir schneiden hier auf max(expanded_limit*2), grob.
-        if len(all_ids) > expanded_limit * 2:
-            # Priorisiere IDs, die in mindestens einer Liste weit oben vorkommen
-            # (einfacher Heuristik-Approach ohne extra DB)
-            text_rank = {r["recipe_id"]: i for i, r in enumerate(text_results)}
-            ing_rank = {r["recipe_id"]: i for i, r in enumerate(ing_results)}
+        print(f"🥕 2. Zutaten-Re-Ranking Query: '{ing_q}'", file=sys.stderr)
 
-            def rank_key(rid: str) -> Tuple[int, int]:
-                return (text_rank.get(rid, 10**9), ing_rank.get(rid, 10**9))
+        # Query-Embedding (ingredients) erzeugen
+        try:
+            query_embedding = embedding_model.embed(ing_q)
+            query_vector = embedding_model.vector_to_literal(query_embedding)
+        except Exception as e:
+            print(f"❌ Fehler beim Erstellen des Zutaten-Embeddings: {e}", file=sys.stderr)
+            # Wenn Embedding nicht geht: liefere einfach Text-Ranking
+            final_results = text_results[:limit]
+            for r in final_results:
+                r["text_score"] = float(r.get("score", 0.0))
+                r["ingredients_score"] = None
+                r["combined_score"] = float(r.get("score", 0.0))
+                r["score"] = r["combined_score"]
+            return final_results
 
-            all_ids.sort(key=rank_key)
-            all_ids = all_ids[: expanded_limit * 2]
+        # Zutaten-Scores für Kandidaten abfragen (nur IN (...)!)
+        # - Wenn ein Rezept kein ingredients_embedding hat, kommt es nicht zurück -> wir behandeln das als "missing", NICHT als 0
+        ing_score_map: Dict[str, float] = {}
 
-        # 5) Wir brauchen "Base-Daten" fürs Rezept.
-        # Am einfachsten: wir nehmen sie aus einer der Listen (Text bevorzugt),
-        # sonst aus Zutatenliste.
-        base_by_id: Dict[str, Dict[str, Any]] = {}
-        for r in text_results:
-            base_by_id[r["recipe_id"]] = r
-        for r in ing_results:
-            base_by_id.setdefault(r["recipe_id"], r)
+        try:
+            placeholders = ",".join(["%s"] * len(candidate_ids))
 
+            sql = f"""
+                SELECT
+                    r.recipe_id,
+                    1.0 - (r.ingredients_embedding <-> %s::vector) / 2.0 AS ingredients_similarity
+                FROM {TABLE_RECIPES} r
+                WHERE r.recipe_id IN ({placeholders})
+                  AND r.ingredients_embedding IS NOT NULL
+                ORDER BY r.ingredients_embedding <-> %s::vector ASC
+            """
+
+            params = [query_vector] + candidate_ids + [query_vector]
+
+            with self.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, params)
+                    rows = cur.fetchall()
+
+                    for row in rows:
+                        rid = row[0]
+                        sim = float(row[1]) if row[1] is not None else 0.0
+                        # clamp
+                        sim = max(0.0, min(1.0, sim))
+                        ing_score_map[rid] = sim
+
+            print(f"✅ Zutaten-Scores berechnet für {len(ing_score_map)}/{len(candidate_ids)} Kandidaten", file=sys.stderr)
+
+        except Exception as e:
+            print(f"❌ ERROR beim Zutaten-Re-Ranking SQL: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+
+            # fallback: nur Text
+            final_results = text_results[:limit]
+            for r in final_results:
+                r["text_score"] = float(r.get("score", 0.0))
+                r["ingredients_score"] = None
+                r["combined_score"] = float(r.get("score", 0.0))
+                r["score"] = r["combined_score"]
+            return final_results
+
+        # ---------------------------------------------------------------------
+        # 3) Kombinieren (ohne 0-Strafe bei missing ingredients_embedding)
+        # ---------------------------------------------------------------------
         combined: List[Dict[str, Any]] = []
 
-        for idx, rid in enumerate(all_ids):
+        for idx, rid in enumerate(candidate_ids):
             base = base_by_id.get(rid)
             if not base:
                 continue
 
             text_score = float(text_score_map.get(rid, 0.0))
-            ingredients_score = float(ing_score_map.get(rid, 0.0))
+            has_ing = rid in ing_score_map
+            ingredients_score = float(ing_score_map.get(rid, 0.0)) if has_ing else None
 
-            final_score = text_score * TEXT_WEIGHT + ingredients_score * ING_WEIGHT
+            if has_ing:
+                final_score = text_score * TEXT_WEIGHT + float(ingredients_score) * ING_WEIGHT
+            else:
+                # wichtig: keine Bestrafung, wenn kein ingredients_embedding vorhanden
+                final_score = text_score
 
             enriched = {
                 **base,
                 "text_score": text_score,
-                "ingredients_score": ingredients_score,
+                "ingredients_score": ingredients_score,                # None wenn nicht vorhanden
+                "ingredients_score_available": has_ing,
                 "combined_score": final_score,
                 "score": final_score,
             }
@@ -327,18 +381,20 @@ class EmbeddingService:
             if idx < 3:
                 print(
                     f"   #{idx+1} {enriched.get('name','')[:40]}... "
-                    f"Text={text_score:.4f}, Zutaten={ingredients_score:.4f}, Final={final_score:.4f}",
+                    f"Text={text_score:.4f}, Zutaten={'—' if ingredients_score is None else f'{ingredients_score:.4f}'}, Final={final_score:.4f}",
                     file=sys.stderr
                 )
 
-        # 6) Sortieren & limitieren
-        combined.sort(key=lambda x: x["score"], reverse=True)
+        # ---------------------------------------------------------------------
+        # 4) Sortieren & limitieren
+        # ---------------------------------------------------------------------
+        combined.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
         final_results = combined[:limit]
 
-        print(f"🎯 {len(final_results)} finale kombinierte Ergebnisse", file=sys.stderr)
+        print(f"🎯 {len(final_results)} finale re-ranked Ergebnisse", file=sys.stderr)
         if final_results:
             best = final_results[0]
-            print(f"🏆 Bester kombinierter Score: {best['score']:.4f} ({best.get('name','')})", file=sys.stderr)
+            print(f"🏆 Bester Score: {best['score']:.4f} ({best.get('name','')})", file=sys.stderr)
 
         return final_results
 

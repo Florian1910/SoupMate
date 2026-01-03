@@ -79,9 +79,39 @@ geminiRoutes.post('/prepare', async (c) => {
       return c.json({ ok: false, error: "Body must include 'prompt' (string)" }, 400);
     }
 
+    // ---------------------------------------------------------
+    // ✅ UI-Filter aus Sidebar lesen (Vorrang gegenüber LLM)
+    // ---------------------------------------------------------
+    const uiDietType =
+      typeof (filters as any)?.dietType === 'string'
+        ? String((filters as any).dietType).toLowerCase().trim()
+        : 'alle';
+
+    const uiDifficulty =
+      typeof (filters as any)?.difficulty === 'number' && Number.isFinite((filters as any).difficulty)
+        ? Number((filters as any).difficulty)
+        : 0;
+
+    const uiWorkTime =
+      Array.isArray((filters as any)?.workTime) && (filters as any).workTime.length === 2
+        ? (filters as any).workTime
+        : null;
+
+    const uiTotalTime =
+      Array.isArray((filters as any)?.totalTime) && (filters as any).totalTime.length === 2
+        ? (filters as any).totalTime
+        : null;
+
+    const uiAllergies =
+      Array.isArray((filters as any)?.allergies)
+        ? (filters as any).allergies.map((x: any) => String(x).trim()).filter(Boolean)
+        : [];
+
     // ✅ NUR User-Zutatenfeld (wenn User explizit etwas im Zutatenfeld eingibt!)
     const userIngredients =
-      typeof (filters as any)?.ingredients === 'string' ? String((filters as any).ingredients) : '';
+      typeof (filters as any)?.ingredients === 'string'
+        ? String((filters as any).ingredients).trim()
+        : '';
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
@@ -164,29 +194,44 @@ geminiRoutes.post('/prepare', async (c) => {
       lobster: 'Schalentiere'
     };
 
-    const allergies: string[] = [];
+    const allergiesFromPrompt: string[] = [];
     for (const ex of rawExclude) {
       const mapped = allergyMap[ex];
-      if (mapped) allergies.push(mapped);
+      if (mapped) allergiesFromPrompt.push(mapped);
     }
 
-    // Diet / Time
-    const diet = typeof parsed.diet === 'string' ? String(parsed.diet).toLowerCase().trim() : 'alle';
+    // Diet / Time aus LLM
+    const llmDiet = typeof parsed.diet === 'string' ? String(parsed.diet).toLowerCase().trim() : 'alle';
     const timeMax = Number.isFinite(parsed.time_max) ? Number(parsed.time_max) : 240;
 
     // ✅ LLM-Zutaten als String (nur Similarity-Hint, NICHT hart filtern)
     const ingredientsStr = cleanIngredients.join(',');
+
+    // ---------------------------------------------------------
+    // ✅ Final: Sidebar-Filter haben Vorrang
+    // ---------------------------------------------------------
+    const finalDietType = uiDietType !== 'alle' ? uiDietType : (llmDiet || 'alle');
+    const finalDifficulty = uiDifficulty > 0 ? uiDifficulty : inferredDifficulty;
+
+    // Wenn du workTime in der Sidebar wieder aktivieren willst:
+    const finalWorkTime = uiWorkTime ?? [0, 120];
+
+    // totalTime: wenn Sidebar gesetzt, nimm Sidebar, sonst LLM/Default
+    const finalTotalTime = uiTotalTime ?? [0, timeMax];
+
+    // allergies: wenn Sidebar was ausgewählt hat, nimm Sidebar, sonst aus Prompt
+    const finalAllergies = uiAllergies.length ? uiAllergies : allergiesFromPrompt;
 
     const searchPayload = {
       query: String(parsed.english_prompt || '').trim(),
       type: 'text',
       k: 5,
       filters: {
-        dietType: diet || 'alle',
-        difficulty: inferredDifficulty,
-        workTime: [0, 120],
-        totalTime: [0, timeMax],
-        allergies,
+        dietType: finalDietType,
+        difficulty: finalDifficulty,
+        workTime: finalWorkTime,
+        totalTime: finalTotalTime,
+        allergies: finalAllergies,
 
         // ✅ Pflichtfilter NUR wenn User im Sidebar-Feld was eingibt
         ingredients: userIngredients,
@@ -196,6 +241,10 @@ geminiRoutes.post('/prepare', async (c) => {
       }
     };
 
+    // 🔎 Debug (kannst du nachher wieder entfernen)
+    console.log('🧪 UI filters received:', filters);
+    console.log('🧪 searchPayload.filters:', searchPayload.filters);
+
     return c.json({
       ok: true,
       nlp: {
@@ -204,7 +253,7 @@ geminiRoutes.post('/prepare', async (c) => {
         ingredients_extracted: cleanIngredients,
         exclude_extracted: rawExclude,
         inferredDifficulty,
-        diet,
+        diet: llmDiet,
         time_max: timeMax
       },
       searchRequest: {
@@ -217,7 +266,6 @@ geminiRoutes.post('/prepare', async (c) => {
     return c.json({ ok: false, error: err?.message ?? 'Internal error' }, 500);
   }
 });
-
 
 // =====================================================================
 // Hilfsfunktionen

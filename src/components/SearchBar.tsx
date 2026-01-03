@@ -59,7 +59,7 @@ export function SearchBar({ userName, onSearchResults, filters, onSearchStart, o
     // 🔥 IMMER GEMINI RAG VERWENDEN (ohne semantische Suche mit Keywords)
     try {
       toast.info('🔍 Searching for Recipes...');
-      const result = await geminiRag(term, 5, true);
+      const result = await geminiRag(term, 5, true, filters);
       
       // Normalize Funktion für Rezepte
       const normalize = (r: any) => {
