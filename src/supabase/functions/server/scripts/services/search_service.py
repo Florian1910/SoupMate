@@ -124,7 +124,7 @@ class EmbeddingService:
         print(f"🔍 Suche nach ZUTATEN-Ähnlichkeit", file=sys.stderr)
 
         try:
-            # 1. Erstelle Vektor für den Query (GLEICH wie in search_by_text)
+            # 1. Erstelle Vektor für den Query (Gleich wie in search_by_text)
             print(f"🔍 Erstelle Embedding für Query...", file=sys.stderr)
             query_embedding = embedding_model.embed(query)
             query_vector = embedding_model.vector_to_literal(query_embedding)
@@ -231,7 +231,7 @@ class EmbeddingService:
 
     def search_combined(self, query: str, limit: int = 10, ingredients_query: str = "") -> List[Dict[str, Any]]:
         """
-        ECHTES 2-STUFIGES RE-RANKING:
+        RE-RANKING:
 
         1) Kandidaten holen über Text-Embedding (expanded)
         2) NUR diese Kandidaten mit ingredients_embedding bewerten (Similarity)

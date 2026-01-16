@@ -1,4 +1,4 @@
-// server/routes/search.ts - KORRIGIERTE VERSION MIT FIX FÜR PRICE_PER_SERVING
+
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { EmbeddingService } from '../services/embedding.ts';
@@ -182,7 +182,7 @@ function filterByIngredients(recipes: any[], ingredientsFilter: string): any[] {
     return recipes;
   }
 
-  // BINDEWÖRTER DURCH KOMMAS ERSETZEN
+  // Bindewörter ersetzt durch Kommas
   const normalizedInput = ingredientsFilter
     .toLowerCase()
     .replace(/\b(and|und|&|with|mit|plus|also|as well as|lastly|last|\+)\b/gi, ',')
@@ -347,11 +347,6 @@ async function getIngredientsForRecipes(recipeIds: string[]) {
       return {};
     }
 
-    console.log('📊 Found in test_recipe_ingredients:', {
-      count: recipeIngredients?.length,
-      data: recipeIngredients
-    });
-
     if (!recipeIngredients || recipeIngredients.length === 0) {
       console.log('⚠️ No entries found in test_recipe_ingredients for these recipe IDs');
       return {};
@@ -376,11 +371,6 @@ async function getIngredientsForRecipes(recipeIds: string[]) {
       console.error('❌ Error searching test_ingredients:', ingredientsError);
       return {};
     }
-
-    console.log('📊 Found in test_ingredients:', {
-      count: ingredients?.length,
-      data: ingredients
-    });
 
     if (!ingredients || ingredients.length === 0) {
       console.log('⚠️ No ingredient names found in test_ingredients for these IDs');
@@ -414,17 +404,12 @@ async function getIngredientsForRecipes(recipeIds: string[]) {
         };
 
         ingredientsByRecipe[recipeId].push(finalIngredient);
-        console.log(`✅ ADDED: Recipe ${recipeId} -> ${ingredientName}`, finalIngredient);
       } else {
         console.log(`❌ MISSING: No name found for ingredient_id ${ingredientId} in recipe ${recipeId}`);
       }
     });
 
-    console.log('🎯 FINAL RESULT - Ingredients grouped by recipe:', {
-      recipesWithIngredients: Object.keys(ingredientsByRecipe),
-      totalIngredients: Object.values(ingredientsByRecipe).flat().length,
-      details: ingredientsByRecipe
-    });
+
 
     return ingredientsByRecipe;
 
@@ -634,10 +619,10 @@ app.post('/', async (c) => {
       totalTime = [0, 240],
       allergies = [],
 
-      // ✅ NUR User-Eingabe aus dem Zutatenfeld (soll hart filtern)
+      // NUR User-Eingabe aus dem Zutatenfeld (soll hart filtern)
       ingredients: ingredientsUser = '',
 
-      // ✅ LLM-extrahierte Zutaten (sollen NICHT hart filtern, nur Ranking unterstützen)
+      // LLM-extrahierte Zutaten (sollen NICHT hart filtern, nur Ranking unterstützen)
       ingredients_llm: ingredientsLLM = ''
     } = filters;
 
@@ -708,13 +693,7 @@ app.post('/', async (c) => {
         stderrText.includes('SEARCH') ||
         stderrText.includes('INFO') ||
         stderrText.includes('ERROR')
-      ) {
-        console.log(); // leere Zeile
-        console.log('PYTHON OUTPUT (stderr):');
-        console.log(stderrText);
-      }
-
-          console.log('[PYTHON] stdout length:', stdoutText.length, 'chars');
+      )
 
           if (code !== 0) {
             console.error('[PYTHON] Error code:', code);
