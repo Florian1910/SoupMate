@@ -56,7 +56,7 @@ app.get("/", async (c) => {
   const ids: string[] = (favRows ?? []).map((r: any) => r.recipe_id).filter(Boolean);
   if (ids.length === 0) return c.json({ favorites: [] });
 
-  // 2) Rezepte holen (PK in deiner Tabelle ist recipe_id)
+  // 2) Rezepte holen (PK ist recipe_id)
   const { data: recipes, error: recErr } = await supabase
     .from("test_recipes")
     .select("*")

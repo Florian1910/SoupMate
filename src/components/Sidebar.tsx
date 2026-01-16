@@ -19,12 +19,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "./ui/tabs";
 type DietType = "alle" | "vegetarisch" | "vegan";
 
 export interface Recipe {
-    // WICHTIG: DB liefert recipe_id (PK)
+    //DB liefert recipe_id (PK)
     recipe_id?: string;
-
-    // falls du irgendwo im Frontend noch id verwendest
     id?: string;
-
     name: string;
     difficulty: number;
     diet: DietType;
@@ -142,7 +139,7 @@ export function Sidebar({
         ingredients.trim() !== "",
     ].filter(Boolean).length;
 
-    // ✅ Hilfsfunktion: immer eine echte ID für Favorites verwenden
+    // Hilfsfunktion: immer eine echte ID für Favorites verwenden
     const getRecipeId = (recipe: Recipe) => recipe.recipe_id ?? recipe.id ?? "";
 
     return (

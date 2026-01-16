@@ -12,7 +12,6 @@ if ingredients_query:
 else:
     print(f"⚠️  No ingredients query provided, using full query for ingredients similarity", file=sys.stderr)
 
-# Korrekter Pfad
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.append(project_root)
@@ -28,8 +27,7 @@ try:
     if ingredients_query:
         print(f"🥕 Verwende extrahierte Zutaten für Ingredients-Similarity: '{ingredients_query}'", file=sys.stderr)
 
-    # WICHTIG: Hier muss search_combined() aufgerufen werden!
-    # Wenn ingredients_query vorhanden, verwende es für Ingredients-Similarity
+
     results = service.search_combined(query, limit, ingredients_query)
 
     print(f"✅ COMBINED Search abgeschlossen: {len(results)} Ergebnisse", file=sys.stderr)
