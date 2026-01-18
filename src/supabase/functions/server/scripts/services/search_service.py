@@ -1,23 +1,11 @@
-import logging
-import re
 import sys
-import math
-import uuid
-from typing import List, Dict, Any, Tuple, Set
+from typing import Any, Dict, List, Tuple
 from models.embedding import embedding_model
 from services.database import DatabaseService
 from config import TABLE_RECIPES, TABLE_ING, TABLE_LINK, TABLE_NUTRITION
 
-class EmbeddingService:
-    #Wrapper, wandelt in ein gesamten String um [Banana, Strawberry, Almond milk] - [banana strawberry almond milk]
-    def search_by_ingredients(self, ingredients: List[str], limit: int = 10) -> List[Dict[str, Any]]:
-        """Search recipes by list of ingredients"""
-        if not ingredients:
-            return []
 
-        # Combine ingredients into a query
-        query = " ".join(ingredients)
-        return self.search_by_text_for_ingredients(query, limit)
+class EmbeddingService:
 
     def __init__(self):
         self.db = DatabaseService()
@@ -42,7 +30,7 @@ class EmbeddingService:
             try:
                 query_embedding = embedding_model.embed(query) #erstellt Zahlenvektor
                 print(f"🔍 Embedding Dimension: {len(query_embedding)}", file=sys.stderr)
-                query_vector = embedding_model.vector_to_literal(query_embedding) #wichtig für Postgres Format
+                query_vector = embedding_model.vector_to_literal(query_embedding) #wichtig für Postgres Format - Distanzberechnung
                 print(f"🔍 Vektor erstellt (Länge: {len(query_vector)})", file=sys.stderr)
             except Exception as e:
                 print(f"❌ Fehler beim Erstellen des Embeddings: {e}", file=sys.stderr)
@@ -118,6 +106,7 @@ class EmbeddingService:
             return []
 
 
+    #altes konzept - Problem mit 0 Ergebenissen
     def search_by_text_for_ingredients(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         print(f"\n=== START SEMANTISCHE ZUTATEN-SUCHE ===", file=sys.stderr)
         print(f"🔍 Query: '{query}'", file=sys.stderr)
@@ -241,8 +230,7 @@ class EmbeddingService:
         Ergebnis: Keine "ingredients_score = 0" nur weil Rezept nicht in einer zweiten Top-N Liste war.
         """
 
-        import sys
-        from typing import Any, Dict, List, Tuple
+
 
         print(f"\n=== START COMBINED SEARCH (RE-RANK TEXT → INGREDIENTS) ===", file=sys.stderr)
         print(f"🔍 Query: '{query}'", file=sys.stderr)
@@ -265,15 +253,15 @@ class EmbeddingService:
             print("⚠️  Keine Text-Ergebnisse -> return [].", file=sys.stderr)
             return []
 
-        # IDs der Kandidaten
+        # recipe_id rausholen
         candidate_ids = [r["recipe_id"] for r in text_results if r.get("recipe_id")]
 
-        # text score map
+        # text score map von allen ergebnissen
         text_score_map: Dict[str, float] = {
             r["recipe_id"]: float(r.get("score", 0.0)) for r in text_results
         }
 
-        # base data aus text_results (enthält schon ingredients via _get_recipe_ingredients)
+        # base data aus text_results (enthält schon ingredients)
         base_by_id: Dict[str, Dict[str, Any]] = {r["recipe_id"]: r for r in text_results}
 
         # ---------------------------------------------------------------------
@@ -365,7 +353,7 @@ class EmbeddingService:
             if has_ing:
                 final_score = text_score * TEXT_WEIGHT + float(ingredients_score) * ING_WEIGHT
             else:
-                # wichtig: keine Bestrafung, wenn kein ingredients_embedding vorhanden
+
                 final_score = text_score
 
             enriched = {
