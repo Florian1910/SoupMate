@@ -10,18 +10,18 @@ class SpoonacularService:
     def __init__(self):
         self.api_key = SPOONACULAR_API_KEY
 
-    # Ruft Suppen-Rezepte von der API ab explizit nur Suppen
+    # Rezepte von der API
     def fetch_recipes(self, query: str = "", number: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
         url = (
             "https://api.spoonacular.com/recipes/complexSearch"
             f"?number={number}"
             f"&offset={offset}"
-            f"&addRecipeInformation=true"
-            f"&addRecipeInstructions=true"
-            f"&instructionsRequired=true"
-            f"&fillIngredients=true"
-            f"&addRecipeNutrition=true"
-            f"&dishType=soup"
+            f"&addRecipeInformation=true" # Beschreibung
+            f"&addRecipeInstructions=true" # Anleitung
+            f"&instructionsRequired=true" # Rezepte nur mit Anleitung
+            f"&fillIngredients=true" # Zutaten
+            f"&addRecipeNutrition=true" # Nährwerte 
+            f"&dishType=soup" # Suppen
         )
 
         if query and query.strip():
@@ -31,11 +31,13 @@ class SpoonacularService:
 
         logging.info(f"Spoonacular API: offset={offset}, number={number}")
         logging.info(f"Spoonacular API: dishType=soup, query='{query}', number={number}")
+        
         response = requests.get(url, timeout=60)
         response.raise_for_status()
+        
         data = response.json() or {}
-
         recipes = data.get("results", [])
+        
         logging.info(f"API Antwort: {len(recipes)} Rezepte mit dishType=soup")
         return recipes
 
@@ -61,7 +63,7 @@ class SpoonacularService:
         logging.info(f"Schwierigkeit: {difficulty}/5 (Zeit: {total_time}min, Zutaten: {ingredient_count}, Schritte: {step_count})")
         return difficulty
 
-    # Extrahiert relevante Nährwerte und mappt sie auf das Nutrition-Objekt
+    # Nährwerte mappen auf das Nutrition-Objekt
     def extract_nutrition(self, recipe_data: Dict[str, Any]) -> Nutrition:
         nutrition_data = recipe_data.get("nutrition", {})
         nutrients = nutrition_data.get("nutrients", [])
@@ -96,13 +98,13 @@ class SpoonacularService:
         logging.info(f"Extrahiert Nährwerte: {nutrition.calories} kcal, {nutrition.protein}g Protein")
         return nutrition
 
-    # Wandelt den Preis pro Portion von US-Cent (API-Format) in Euro um
+    # Wandelt den Preis pro Portion von US-Cent in Euro um
     def extract_price_info(self, recipe_data: Dict[str, Any]) -> Price:
         price_per_serving = recipe_data.get("pricePerServing", 0)
 
         if price_per_serving > 0:
             price_per_serving_usd = price_per_serving / 100
-            usd_to_eur_rate = 0.92
+            usd_to_eur_rate = 0.92 # fixer Wert
             price_per_serving_eur = price_per_serving_usd * usd_to_eur_rate
         else:
             price_per_serving_eur = 0
@@ -111,7 +113,7 @@ class SpoonacularService:
         logging.info(f"Extrahiert Preis: {price.price_per_serving}€ pro Portion")
         return price
 
-    # Normalisiert rohe JSON-Daten zu einem Recipe-Objekt inkl. Embeddings (Text & Zutaten)
+    # JSON-Daten --> Recipe-Objekt
     def normalize_recipe(self, recipe_data: Dict[str, Any]) -> Recipe:
         title = recipe_data.get("title") or ""
         description = embedding_model.html_to_text(recipe_data.get("summary") or "")
@@ -142,8 +144,8 @@ class SpoonacularService:
         text_for_embedding = " ".join([title, description, instructions_text]).strip()
         ing_for_embedding = " ".join([ing.name for ing in ingredients]).strip()
 
-        text_vec = embedding_model.embed(text_for_embedding)
-        ing_vec = embedding_model.embed(ing_for_embedding)
+        text_vec = embedding_model.embed(text_for_embedding) # Embedding vom Rezept an sich
+        ing_vec = embedding_model.embed(ing_for_embedding) # Embedding aller Zutaten
 
         return Recipe(
             name=title,
