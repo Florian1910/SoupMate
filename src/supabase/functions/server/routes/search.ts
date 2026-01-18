@@ -226,9 +226,10 @@ function filterByIngredients(recipes: any[], ingredientsFilter: string): any[] {
     });
 
     if (!allTermsFound) {
-      const missingTerms = searchTerms.filter(term =>
-        !allIngredients.includes(term.toLowerCase())
-      );
+      const missingTerms = searchTerms.filter(term => {
+        const variants = buildTermVariants(term);
+        return !variants.some(v => ingredientsLower.includes(v));
+        });
       console.log(`[INGREDIENTS] ❌ Excluded: "${recipe.name}" - Missing: ${missingTerms.join(', ')}`);
       return false;
     }
@@ -418,135 +419,6 @@ async function getIngredientsForRecipes(recipeIds: string[]) {
     return {};
   }
 }
-
-// ========== ROUTES ==========
-app.post('/debug-search', async (c) => {
-  try {
-    const body = await c.req.json();
-    const { query } = body;
-
-    console.log('[DEBUG] Raw database query for:', query);
-
-    const { data: rawRecipes, error } = await supabase
-      .from('test_recipes')
-      .select('recipe_id, name')
-      .ilike('name', `%${query}%`);
-
-    if (error) throw error;
-
-    console.log('[DEBUG] Raw results:', {
-      count: rawRecipes?.length,
-      recipes: rawRecipes?.map(r => ({ id: r.recipe_id, name: r.name }))
-    });
-
-    const recipeIdCounts: Record<string, number> = {};
-    rawRecipes?.forEach(recipe => {
-      recipeIdCounts[recipe.recipe_id] = (recipeIdCounts[recipe.recipe_id] || 0) + 1;
-    });
-
-    const duplicates = Object.entries(recipeIdCounts).filter(([_, count]) => count > 1);
-
-    console.log('[DEBUG] Duplicate analysis:', {
-      totalRecipes: rawRecipes?.length,
-      uniqueRecipes: new Set(rawRecipes?.map(r => r.recipe_id)).size,
-      duplicates: duplicates.length > 0 ? duplicates : 'No duplicates found'
-    });
-
-    return c.json({
-      success: true,
-      analysis: {
-        total: rawRecipes?.length,
-        unique: new Set(rawRecipes?.map(r => r.recipe_id)).size,
-        duplicates: duplicates
-      },
-      recipes: rawRecipes
-    });
-
-  } catch (err) {
-    console.error('[DEBUG] Error:', err);
-    return c.json({ error: err.message }, 500);
-  }
-});
-
-app.get('/health', (c) => ok(c, { ok: true, service: 'search', ts: new Date().toISOString() }));
-
-app.get('/debug-db', async (c) => {
-  try {
-    console.log('🔍 DEBUG: Checking actual data in tables...');
-
-    const { data: recipes, error: recipesError } = await supabase
-      .from('test_recipes')
-      .select('recipe_id, name')
-      .limit(3);
-
-    console.log('📊 Sample recipes:', recipes);
-
-    if (recipesError) {
-      console.error('❌ Error fetching recipes:', recipesError);
-    }
-
-    const recipeIds = recipes?.map(r => r.recipe_id) || [];
-    let recipeIngredients = [];
-
-    if (recipeIds.length > 0) {
-      const { data: relations, error: relationsError } = await supabase
-        .from('test_recipe_ingredients')
-        .select('*')
-        .in('recipe_id', recipeIds)
-        .limit(10);
-
-      console.log('📊 test_recipe_ingredients for sample recipes:', relations);
-      recipeIngredients = relations || [];
-
-      if (relationsError) {
-        console.error('❌ Error fetching recipe_ingredients:', relationsError);
-      }
-    }
-
-    const { data: allIngredients, error: ingredientsError } = await supabase
-      .from('test_ingredients')
-      .select('ingredient_id, name')
-      .limit(10);
-
-    console.log('📊 Sample ingredients:', allIngredients);
-
-    if (ingredientsError) {
-      console.error('❌ Error fetching ingredients:', ingredientsError);
-    }
-
-    let ingredientsResult = {};
-    if (recipeIds.length > 0) {
-      ingredientsResult = await getIngredientsForRecipes(recipeIds);
-    }
-
-    return c.json({
-      success: true,
-      sample_recipes: recipes,
-      sample_recipe_ingredients: recipeIngredients,
-      sample_ingredients: allIngredients,
-      ingredients_test_result: ingredientsResult,
-      message: 'Check server logs for detailed database info'
-    });
-
-  } catch (err) {
-    console.error('❌ Debug error:', err);
-    return c.json({ error: String(err) }, 500);
-  }
-});
-
-app.get('/debug', async (c) => {
-  try {
-    const table = config.database.tableNames.recipes;
-    const { error } = await supabase
-      .from(table)
-      .select('recipe_id', { count: 'exact', head: true });
-
-    if (error) throw error;
-    return ok(c, { ok: true, table, reachable: true });
-  } catch (err) {
-    return fail(c, err, 500, 'DebugError');
-  }
-});
 
 // ========== KOMBINIERTE SCORE-AUSGABE FUNKTION ==========
 function printCombinedScoreDetails(recipe: any) {
