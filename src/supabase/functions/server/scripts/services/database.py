@@ -1,4 +1,4 @@
-# Verwaltet Datenbankverbindungen und speichert Rezepte, Zutaten sowie Nährwerte in Supabase/PostgreSQL
+# Verwaltet Datenbankverbindungen und speichert Rezepte in Supabase
 
 import uuid
 import logging
@@ -16,16 +16,19 @@ class DatabaseService:
     def get_connection(self):
         return psycopg2.connect(self.connection_string)
 
-    # Prüft, ob eine Zutat existiert; falls nicht, wird sie neu angelegt (inkl. Vektor-Embedding) und die ID zurückgegeben
+    # Prüft, ob eine Zutat existiert
     def upsert_ingredient(self, cur, name: str) -> uuid.UUID:
+        # Existiert die Zutat bereits
         cur.execute(
             sql.SQL("SELECT ingredient_id FROM {} WHERE name = %s").format(sql.Identifier(TABLE_ING)),
             (name,)
         )
         row = cur.fetchone()
+        # JA: ID zurück geben
         if row:
             return row[0]
 
+        # Nein: Neu anlegen & einfügen
         iid = uuid.uuid4()
         ing_embedding = embedding_model.vector_to_literal(embedding_model.embed(name))
 
@@ -36,7 +39,7 @@ class DatabaseService:
         )
         return cur.fetchone()[0]
 
-    # Verknüpft Zutaten mit einem Rezept
+    # Assoziationsklasse: test_recipe_ingredients
     def link_ingredients_to_recipe(self, cur, recipe_id: uuid.UUID, ingredients: List[Ingredient]):
         for ingredient in ingredients:
             if not ingredient.name.strip():
@@ -78,10 +81,10 @@ class DatabaseService:
             )
         )
 
-    # Fügt das Hauptrezept inkl. Metadaten und Embeddings in die Datenbank ein
     def insert_recipe(self, cur, recipe: Recipe) -> uuid.UUID:
         recipe_id = uuid.uuid4() if not recipe.recipe_id else recipe.recipe_id
 
+        # Rezept
         cur.execute(
             sql.SQL(f"""
                 INSERT INTO {TABLE_RECIPES} (
@@ -116,7 +119,7 @@ class DatabaseService:
 
         inserted_id = cur.fetchone()[0]
 
-        # Triggert den Nährwert-Insert
+        # Nährwert-Insert
         self.insert_recipe_nutrition(cur, inserted_id, recipe.nutrition)
 
         return inserted_id
@@ -125,7 +128,7 @@ class DatabaseService:
     def save_recipe(self, recipe: Recipe) -> uuid.UUID:
         with self.get_connection() as conn:
             with conn.cursor() as cur:
-                recipe_id = self.insert_recipe(cur, recipe)
-                self.link_ingredients_to_recipe(cur, recipe_id, recipe.ingredients)
+                recipe_id = self.insert_recipe(cur, recipe) # Rezept inkl. Nährwerte
+                self.link_ingredients_to_recipe(cur, recipe_id, recipe.ingredients) # Assoziationsklasse
                 conn.commit()
                 return recipe_id
