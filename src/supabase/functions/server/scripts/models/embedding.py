@@ -1,3 +1,4 @@
+# Embedding wird hier gemacht
 import re
 import logging
 from typing import List
@@ -15,21 +16,21 @@ class EmbeddingModel:
         logging.info(f"Lade Embedding-Modell: {MODEL_NAME}")
         self.model = SentenceTransformer(MODEL_NAME)
 
-    # Entfernt HTML-Tags aus dem String und normalisiert Leerzeichen/Umbrüche
+    # Entfernt HTML-Tags aus dem String
     def html_to_text(self, s: str) -> str:
         if not s: return ""
         s = TAG_RE.sub(" ", s)
         s = WS_RE.sub(" ", s).strip()
         return s
 
-    # Wandelt den Text in einen Vektor um und prüft, ob die Dimension stimmt (Sicherheitscheck)
+    # Wandelt den Text in einen Vektor
     def embed(self, text: str) -> List[float]:
         vec = self.model.encode(text or "").tolist()
-        if len(vec) != EMB_DIM:
+        if len(vec) != EMB_DIM: #ob 384 Dimensional
             raise RuntimeError(f"Embedding-Dimension unerwartet: {len(vec)} != {EMB_DIM}")
         return vec
 
-    # Formatiert den Vektor als String für Postgres/pgvector (z.B. '[0.1234,...]')
+    # Vektor --> String (8 NAchkommastellen)
     def vector_to_literal(self, vec: List[float]) -> str:
         return "[" + ",".join(f"{x:.8f}" for x in vec) + "]"
 
