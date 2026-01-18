@@ -1,4 +1,4 @@
-# Definiert die Datenstrukturen für Rezepte, Nährwerte und Zutaten sowie deren Initialisierung
+# Definiert die Datenstrukturen
 
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
