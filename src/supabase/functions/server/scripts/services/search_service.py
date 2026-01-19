@@ -261,7 +261,7 @@ class EmbeddingService:
             r["recipe_id"]: float(r.get("score", 0.0)) for r in text_results
         }
 
-        # base data aus text_results (enthält schon ingredients)
+        # base data aus text_results (enthält komplettes Rezept Objekt)
         base_by_id: Dict[str, Dict[str, Any]] = {r["recipe_id"]: r for r in text_results}
 
         # ---------------------------------------------------------------------
@@ -364,6 +364,7 @@ class EmbeddingService:
                 "combined_score": final_score,
                 "score": final_score,
             }
+            #aktualisierter Wert eintragen
             combined.append(enriched)
 
             if idx < 3:
