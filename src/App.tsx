@@ -94,8 +94,8 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const [favorites, setFavorites] = useState<Recipe[]>([]);
-  const [favoritesLoading, setFavoritesLoading] = useState(false);
-  const [favoritesError, setFavoritesError] = useState<string | null>(null);
+  const [ setFavoritesLoading] = useState(false);
+  const [ setFavoritesError] = useState<string | null>(null);
 
   const [chatHistory, setChatHistory] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
